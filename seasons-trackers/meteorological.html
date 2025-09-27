@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Meteorological Season Tracker (Global, Fixed UTC Offset)</title>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; line-height: 1.5; font-size: 18px; margin: 0; }
+    .note { color:#555; margin-bottom: 16px; }
+    h3 { margin: 14px 0 8px; }
+    #seasonHeading { font-size: 20px; margin: 8px 0 6px; }
+    #seasonTimes { margin-bottom: 12px; }
+    #milestones { font-size: 16px; margin-bottom: 20px; }
+    #currentTime { font-size: 14px; color: gray; }
+    .row { display:flex; gap:12px; align-items:center; margin: 12px 0; flex-wrap: wrap; }
+    input[type="text"], button, select { font-size: 16px; padding: 6px 8px; }
+    .divider { height: 1px; background: #e4e4e4; margin: 18px 0; }
+  </style>
+</head>
+<body>
+
+  <!-- Top content -->
+  <div id="seasonHeading"></div>
+  <div id="seasonProgress" style="margin-bottom: 10px;"></div>
+  <div id="seasonTimes" class="note"></div>
+  <div id="milestones"></div>
+  <div id="currentTime"></div>
+
+  <div class="divider"></div>
+
+  <!-- Settings -->
+  <div id="tzNote" class="note"></div>
+  <div class="row">
+    <label for="hemisphere">Hemisphere:</label>
+    <select id="hemisphere" title="Choose hemisphere">
+      <option value="auto">Auto (by time zone)</option>
+      <option value="north">Northern Hemisphere</option>
+      <option value="south">Southern Hemisphere</option>
+    </select>
+
+    <label for="utcOffset">Custom UTC offset (no DST):</label>
+    <input id="utcOffset" type="text" placeholder="Examples: 1, -5.5, +05:30" />
+    <button id="applyOffset">Apply</button>
+    <span id="offsetStatus" class="note"></span>
+  </div>
+
+  <script>
+    (function () {
+      const { DateTime, FixedOffsetZone } = luxon;
+
+      function $(id){ return document.getElementById(id); }
+
+      function minutesToSignedHHMM(mins){
+        const sign = mins < 0 ? "-" : "+";
+        const a = Math.abs(mins);
+        const hh = String(Math.floor(a/60)).padStart(2,"0");
+        const mm = String(a % 60).padStart(2,"0");
+        return sign + hh + ":" + mm;
+      }
+      function zonePrettyLabel(mins){
+        if (mins == null) return "UTC";
+        const a = Math.abs(mins), sign = mins < 0 ? "-" : "+";
+        const hh = Math.floor(a/60), mm = a % 60;
+        return mm === 0 ? `UTC${sign}${hh}` : `UTC${minutesToSignedHHMM(mins)}`;
+      }
+      function parseOffsetToMinutes(s){
+        if (!s) return null;
+        s = s.trim();
+        if (/^[+-]?\d+(\.\d+)?$/.test(s)) return Math.round(parseFloat(s)*60);
+        const m = s.match(/^([+-])(\d{1,2}):([0-5]\d)$/);
+        if (m){
+          const sign = m[1] === "-" ? -1 : 1;
+          const hh = parseInt(m[2],10), mm = parseInt(m[3],10);
+          return sign*(hh*60+mm);
+        }
+        return null;
+      }
+
+      const HEMI_KEY = "seasonHemisphere";
+      const OFFSET_KEY = "utcOffsetUser";
+      const hemiSelect = $("hemisphere");
+      const offsetInput = $("utcOffset");
+      const applyBtn = $("applyOffset");
+
+      function getUserFixedZone(){
+        const saved = localStorage.getItem(OFFSET_KEY);
+        const mins = parseOffsetToMinutes(saved);
+        if (mins === null) return { zone: FixedOffsetZone.utcInstance, mins: 0 };
+        return { zone: FixedOffsetZone.instance(mins), mins };
+      }
+      function setUserOffsetDisplay(mins){
+        $("offsetStatus").textContent = mins === null
+          ? " (Times show in UTC by default; enter an offset to change.)"
+          : " (" + zonePrettyLabel(mins) + ")";
+      }
+
+      const emojiBySeason = { winter:"❄️", spring:"🌱", summer:"☀️", autumn:"🍂" };
+      const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+      const nextSeason = s => (s==="winter"?"spring":s==="spring"?"summer":s==="summer"?"autumn":"winter");
+
+      // Meteorological season bounds
+      function currentSeasonBounds(zone, hemi){
+        const now = DateTime.now().setZone(zone);
+        const Y = now.year, m = now.month;
+        let currentSeason, start, end;
+
+        if (hemi === "north") {
+          if (m >= 3 && m <= 5) {
+            currentSeason = "spring";
+            start = DateTime.fromObject({year:Y, month:3, day:1}, {zone});
+            end   = DateTime.fromObject({year:Y, month:6, day:1}, {zone});
+          } else if (m >= 6 && m <= 8) {
+            currentSeason = "summer";
+            start = DateTime.fromObject({year:Y, month:6, day:1}, {zone});
+            end   = DateTime.fromObject({year:Y, month:9, day:1}, {zone});
+          } else if (m >= 9 && m <= 11) {
+            currentSeason = "autumn";
+            start = DateTime.fromObject({year:Y, month:9, day:1}, {zone});
+            end   = DateTime.fromObject({year:Y, month:12, day:1}, {zone});
+          } else {
+            currentSeason = "winter";
+            if (m === 12) {
+              start = DateTime.fromObject({year:Y, month:12, day:1}, {zone});
+              end   = DateTime.fromObject({year:Y+1, month:3, day:1}, {zone});
+            } else {
+              start = DateTime.fromObject({year:Y-1, month:12, day:1}, {zone});
+              end   = DateTime.fromObject({year:Y, month:3, day:1}, {zone});
+            }
+          }
+        } else {
+          if (m >= 3 && m <= 5) {
+            currentSeason = "autumn";
+            start = DateTime.fromObject({year:Y, month:3, day:1}, {zone});
+            end   = DateTime.fromObject({year:Y, month:6, day:1}, {zone});
+          } else if (m >= 6 && m <= 8) {
+            currentSeason = "winter";
+            start = DateTime.fromObject({year:Y, month:6, day:1}, {zone});
+            end   = DateTime.fromObject({year:Y, month:9, day:1}, {zone});
+          } else if (m >= 9 && m <= 11) {
+            currentSeason = "spring";
+            start = DateTime.fromObject({year:Y, month:9, day:1}, {zone});
+            end   = DateTime.fromObject({year:Y, month:12, day:1}, {zone});
+          } else {
+            currentSeason = "summer";
+            if (m === 12) {
+              start = DateTime.fromObject({year:Y, month:12, day:1}, {zone});
+              end   = DateTime.fromObject({year:Y+1, month:3, day:1}, {zone});
+            } else {
+              start = DateTime.fromObject({year:Y-1, month:12, day:1}, {zone});
+              end   = DateTime.fromObject({year:Y, month:3, day:1}, {zone});
+            }
+          }
+        }
+        return { currentSeason, start, end };
+      }
+
+      const milestones = [
+        { label: "10%", value: 0.10 },
+        { label: "20%", value: 0.20 },
+        { label: "25%", value: 0.25 },
+        { label: "30%", value: 0.30 },
+        { label: "⅓",  value: 1/3   },
+        { label: "40%", value: 0.40 },
+        { label: "50%", value: 0.50 },
+        { label: "60%", value: 0.60 },
+        { label: "⅔",  value: 2/3   },
+        { label: "70%", value: 0.70 },
+        { label: "75%", value: 0.75 },
+        { label: "80%", value: 0.80 },
+        { label: "90%", value: 0.90 }
+      ];
+
+      function updateAll(){
+        const { zone, mins } = getUserFixedZone();
+        const zoneLabel = zonePrettyLabel(mins);
+
+        $("tzNote").textContent = `This tracker uses a fixed offset: ${zoneLabel} (ignores DST).`;
+
+        const hemiChoice = localStorage.getItem(HEMI_KEY) || "auto";
+        const hemi = hemiChoice === "north" || hemiChoice === "south" ? hemiChoice : "north";
+
+        const { currentSeason, start, end } = currentSeasonBounds(zone, hemi);
+        const totalSeconds = end.diff(start).as("seconds");
+        const now = DateTime.now().setZone(zone);
+
+        $("seasonHeading").textContent = `${emojiBySeason[currentSeason]} Meteorological ${currentSeason} (${hemi==="south"?"Southern":"Northern"} Hemisphere)`; 
+
+        let progressText;
+        if (now < start) {
+          progressText = `Meteorological ${currentSeason} hasn't started yet.`;
+        } else {
+          const elapsed = now.diff(start).as("seconds");
+          const pct = Math.max(0, Math.min(100, (elapsed/totalSeconds)*100));
+          if (pct >= 99.99 && pct < 100) {
+            progressText = `Meteorological ${currentSeason} is greater than 99.99% complete.`;
+          } else {
+            progressText = `Meteorological ${currentSeason} is ${pct.toFixed(2)}% complete.`;
+          }
+        }
+        $("seasonProgress").textContent = progressText;
+
+        const startStr = start.toFormat("EEE, MMM d, yyyy, HH:mm:ss") + ` ${zoneLabel}`;
+        const endStr   = end.toFormat("EEE, MMM d, yyyy, HH:mm:ss") + ` ${zoneLabel}`;
+        $("seasonTimes").innerHTML =
+          `${cap(currentSeason)} begins: <strong>${startStr}</strong><br>` +
+          `${cap(nextSeason(currentSeason))} begins: <strong>${endStr}</strong>`;
+
+        const clampedElapsed = Math.max(0, Math.min(totalSeconds, now.diff(start).as("seconds")));
+        let html = `<h3>Milestone Dates (${zoneLabel}):</h3>`;
+        html += `<p><strong>${Math.floor(clampedElapsed).toLocaleString()}</strong> seconds have passed out of <strong>${Math.floor(totalSeconds).toLocaleString()}</strong>.</p><ul>`;
+        for (const m of milestones) {
+          const milestoneDT = start.plus({ seconds: totalSeconds * m.value });
+          html += `<li>${m.label} complete: <strong>${milestoneDT.toFormat("EEE, MMM d, yyyy, HH:mm:ss")} ${zoneLabel}</strong></li>`;
+        }
+        html += `</ul>`;
+        $("milestones").innerHTML = html;
+
+        $("currentTime").textContent =
+          `⏱ Current time: ${now.toFormat("EEE, MMM d, yyyy, HH:mm:ss")} (${zoneLabel})`;
+      }
+
+      (function init(){
+        hemiSelect.value = localStorage.getItem(HEMI_KEY) || "auto";
+        hemiSelect.addEventListener("change", () => {
+          localStorage.setItem(HEMI_KEY, hemiSelect.value);
+          updateAll();
+        });
+
+        const savedOffset = localStorage.getItem(OFFSET_KEY);
+        if (savedOffset) offsetInput.value = savedOffset;
+        const mins = parseOffsetToMinutes(savedOffset);
+        setUserOffsetDisplay(mins);
+
+        applyBtn.addEventListener("click", () => {
+          const val = offsetInput.value.trim();
+          const mins = parseOffsetToMinutes(val);
+          if (val !== "" && mins === null) {
+            alert("Please enter a valid UTC offset (e.g., 1, -5.5, +05:30), or leave blank for UTC.");
+            return;
+          }
+          localStorage.setItem(OFFSET_KEY, val);
+          setUserOffsetDisplay(mins);
+          updateAll();
+        });
+
+        updateAll();
+        setInterval(updateAll, 1000);
+      })();
+    })();
+  </script>
+</body>
+</html>
