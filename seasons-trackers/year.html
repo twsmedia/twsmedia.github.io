@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Seconds Passed This Year (User UTC Offset or Local Standard Time)</title>
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+  <script>
+    const { DateTime, FixedOffsetZone } = luxon;
+
+    // --- Storage & parsing of user-specified UTC offset (in hours, decimal allowed) ---
+    function getUserOffsetMinutes() {
+      const stored = localStorage.getItem('userUtcOffset');
+      if (stored !== null && stored !== '') {
+        const num = parseFloat(stored);
+        if (!isNaN(num) && num >= -12 && num <= 14) {
+          return Math.round(num * 60); // minutes east of UTC
+        }
+      }
+      return null;
+    }
+
+    // --- Determine true local STANDARD offset (works in both hemispheres) ---
+    function getStandardOffsetMinutes() {
+      // Use Jan 1 and Jul 1 local times and pick the larger getTimezoneOffset (standard time).
+      const jan = new Date(2025, 0, 1, 0, 0, 0);
+      const jul = new Date(2025, 6, 1, 0, 0, 0);
+      const janOffsetToUTC = jan.getTimezoneOffset(); // minutes to add local→UTC
+      const julOffsetToUTC = jul.getTimezoneOffset();
+      const standardOffsetToUTC = Math.max(janOffsetToUTC, julOffsetToUTC);
+      return -standardOffsetToUTC; // convert to minutes east of UTC (Luxon expects this)
+    }
+
+    // --- Zone selection: user override wins; else local standard time ---
+    function getZoneToUse() {
+      const userMinutes = getUserOffsetMinutes();
+      return userMinutes !== null
+        ? FixedOffsetZone.instance(userMinutes)
+        : FixedOffsetZone.instance(getStandardOffsetMinutes());
+    }
+
+    // --- Pretty UTC±HH:MM formatter (handles :30, :45 offsets) ---
+    function formatOffset(minutes) {
+      const sign = minutes >= 0 ? '+' : '-';
+      const abs = Math.abs(minutes);
+      const h = Math.floor(abs / 60);
+      const m = abs % 60;
+      const mm = String(m).padStart(2, '0');
+      return `UTC${sign}${h}:${mm}`;
+    }
+
+    // --- Helpers for quick-set buttons ---
+    function getMinutesEastAtLocalDate(y, m0, d, hh = 0, mm = 0, ss = 0) {
+      const dt = new Date(y, m0, d, hh, mm, ss);       // local time
+      return -dt.getTimezoneOffset();                  // minutes east of UTC
+    }
+
+    function setCustomOffsetMinutes(minutesEast) {
+      const hours = minutesEast / 60;
+      const stored = Number(hours.toFixed(2));         // keep quarters/halves
+      localStorage.setItem('userUtcOffset', stored);
+      const input = document.getElementById('utcOffsetInput');
+      if (input) input.value = stored;
+      updateSeconds();
+    }
+
+    // --- HH:MM:SS formatter for countdown ---
+    function formatHMS(totalSeconds) {
+      const s = Math.max(0, Math.floor(totalSeconds));
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const sec = s % 60;
+      return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+    }
+
+    // --- Main updater ---
+    function updateSeconds() {
+      const zone = getZoneToUse();
+      const now = DateTime.now().setZone(zone);
+      const currentYear = now.year;
+
+      const startOfYear = DateTime.fromObject(
+        { year: currentYear, month: 1, day: 1, hour: 0, minute: 0, second: 0 },
+        { zone }
+      );
+      const endOfYear = startOfYear.plus({ years: 1 });
+
+      const totalSeconds = Math.floor(endOfYear.diff(startOfYear, "seconds").seconds);
+      let passedSeconds = Math.floor(now.diff(startOfYear, "seconds").seconds);
+
+      // Clamp to start/end behavior
+      if (passedSeconds < 0) passedSeconds = 0;
+      if (passedSeconds > totalSeconds) passedSeconds = 0; // after year end, roll to 0
+
+     // Percentage with TWO decimals always (display only, truncated)
+const rawPercentage = (passedSeconds / totalSeconds) * 100;
+const truncated = Math.floor(rawPercentage * 100) / 100; // truncate to 2 decimals
+let percentFragment = `(${truncated.toFixed(2)}% complete)`;
+
+
+      // --- Exact threshold logic for last 0.01% of the year (leap-year aware) ---
+      const remainingSeconds = totalSeconds - passedSeconds;
+      const thresholdSeconds = totalSeconds * 0.0001; // 0.01% tail
+
+      const countdownEl = document.getElementById("countdown");
+      const countdownTimeEl = document.getElementById("countdownTime");
+
+      if (remainingSeconds <= thresholdSeconds && remainingSeconds > 0) {
+        // We are truly beyond 99.99% complete
+        percentFragment = `(Greater than 99.99% complete)`;
+        if (countdownEl && countdownTimeEl) {
+          countdownTimeEl.textContent = formatHMS(remainingSeconds);
+          countdownEl.style.display = '';
+        }
+      } else {
+        if (countdownEl) countdownEl.style.display = 'none';
+      }
+
+      // Heading with current year
+      const h1 = document.getElementById("headingYear");
+      if (h1) h1.textContent = `Seconds Passed in the Year ${currentYear}`;
+
+      // Display line
+      const secEl = document.getElementById("secondsDisplay");
+      if (secEl) {
+        secEl.textContent =
+          `${passedSeconds.toLocaleString()} out of ${totalSeconds.toLocaleString()} seconds have passed in ${currentYear}. ${percentFragment}`;
+      }
+
+      // Info lines
+      const userOffset = getUserOffsetMinutes();
+      const offsetLabel = userOffset !== null
+        ? `Using custom UTC offset: ${formatOffset(userOffset)}`
+        : `Using local standard time offset: ${formatOffset(getStandardOffsetMinutes())}`;
+
+      const utcEl = document.getElementById("utcOffset");
+      if (utcEl) utcEl.textContent = offsetLabel;
+
+      const curEl = document.getElementById("currentTime");
+      if (curEl) curEl.textContent =
+        `Current time (${formatOffset(zone.offset(now.toMillis()))}): ${now.toFormat('HH:mm:ss')}`;
+
+      const detectedZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const tzEl = document.getElementById("timezoneInfo");
+      if (tzEl) tzEl.textContent =
+        `Your detected time zone is ${detectedZone}. You can override it below.`;
+    }
+
+    // --- Initialize and wire controls ---
+    window.onload = () => {
+      const input = document.getElementById('utcOffsetInput');
+      const stored = localStorage.getItem('userUtcOffset');
+      if (stored !== null) input.value = stored;
+
+      input.addEventListener('input', () => {
+        const val = input.value.trim();
+        if (val === '') {
+          localStorage.removeItem('userUtcOffset');
+        } else {
+          const num = parseFloat(val);
+          if (!isNaN(num) && num >= -12 && num <= 14) {
+            localStorage.setItem('userUtcOffset', num);
+          }
+        }
+        updateSeconds();
+      });
+
+      // Quick-set buttons
+      document.getElementById('useCurrentOffset').addEventListener('click', () => {
+        const nowMinutesEast = -new Date().getTimezoneOffset();
+        setCustomOffsetMinutes(nowMinutesEast);
+      });
+
+      document.getElementById('useEndOfYearOffset').addEventListener('click', () => {
+        const y = new Date().getFullYear();
+        // Use 23:59:59 on Dec 31 local time to capture DST state at year end
+        const minutesEast = getMinutesEastAtLocalDate(y, 11, 31, 23, 59, 59);
+        setCustomOffsetMinutes(minutesEast);
+      });
+
+      document.getElementById('clearCustomOffset').addEventListener('click', () => {
+        localStorage.removeItem('userUtcOffset');
+        input.value = '';
+        updateSeconds();
+      });
+
+      updateSeconds();
+      setInterval(updateSeconds, 1000);
+    };
+  </script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      padding: 2em;
+      background: #f5f5f5;
+      color: #333;
+    }
+    h1 { font-size: 1.8em; }
+    .description {
+      font-size: 0.95em;
+      color: #444;
+      margin-top: 0.3em;
+      margin-bottom: 1.5em;
+    }
+    .seconds {
+      font-size: 1.5em;
+      margin-top: 1em;
+      color: #0077cc;
+    }
+    .info {
+      margin-top: 1em;
+      font-size: 0.95em;
+      color: #555;
+    }
+    .input-box {
+      margin-top: 2em;
+      font-size: 0.95em;
+    }
+    input[type="number"] {
+      width: 100px;
+      margin-left: 0.5em;
+    }
+    .buttons { margin-top: 0.5em; }
+    .buttons > button {
+      margin-right: 0.4em;
+      padding: 0.3em 0.6em;
+      cursor: pointer;
+    }
+    .countdown {
+      margin-top: 0.6em;
+      font-size: 1.05em;
+      color: #0a7;
+    }
+  </style>
+</head>
+<body>
+  <h1 id="headingYear">Seconds Passed in the Current Year</h1>
+  <div class="description">
+    This page ignores Daylight Saving Time by default (uses local <strong>standard</strong> time).
+    If your region is in DST at New Year’s or year-end (parts of Australia),
+    use the custom offset or the quick buttons below so the counter reaches exactly 100% at local midnight.
+  </div>
+
+  <div class="seconds" id="secondsDisplay">Loading...</div>
+
+  <!-- Countdown appears only when the last 0.01% window is reached -->
+  <div class="countdown info" id="countdown" style="display:none;">
+    Countdown to year end: <strong id="countdownTime">--:--:--</strong>
+  </div>
+
+  <div class="info" id="timezoneInfo">Detecting time zone...</div>
+  <div class="info" id="utcOffset">Loading UTC offset...</div>
+  <div class="info" id="currentTime">Loading current time...</div>
+
+  <div class="input-box">
+    <label for="utcOffsetInput">Optional UTC Offset (-12 to +14, e.g. -4.5, 5.75):</label>
+    <input type="number" id="utcOffsetInput" min="-12" max="14" step="0.25" />
+    <div class="buttons">
+      <button id="useCurrentOffset">Use current local offset</button>
+      <button id="useEndOfYearOffset">Use Dec 31-Jan 1 midnight offset</button>
+      <button id="clearCustomOffset">Clear custom offset</button>
+    </div>
+  </div>
+</body>
+</html>
