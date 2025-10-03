@@ -14,7 +14,7 @@
     body { font-family: Arial, sans-serif; padding: 20px; line-height: 1.5; font-size: 18px; }
     .note { color:#555; margin-bottom: 16px; }
     .row { display:flex; gap:12px; align-items:center; margin-bottom: 12px; flex-wrap: wrap; }
-    input[type="text"], select { padding:6px 8px; font-size:16px; }
+    input[type="text"], input[type="number"], select { padding:6px 8px; font-size:16px; }
     button { padding:6px 10px; font-size:16px; cursor:pointer; }
     ul { margin-top: 8px; }
     h3 { margin: 14px 0 8px; }
@@ -55,6 +55,21 @@
     <button id="useDst" title="Set to your local Daylight Saving Time fixed offset (e.g., New York = UTC-4)">Use Local Daylight Time</button>
   </div>
 
+  <div class="divider"></div>
+
+  <!-- NEW: Percentage formatting controls -->
+  <div class="row">
+    <label for="pctMethod">Percentage method:</label>
+    <select id="pctMethod" title="Choose how to format the percentage">
+      <option value="truncate">Truncate (floor)</option>
+      <option value="round">Round</option>
+    </select>
+
+    <label for="pctDecimals">Decimal places:</label>
+    <input id="pctDecimals" type="number" min="0" max="10" value="2" style="width: 70px;" />
+    <button id="applyPctSettings">Apply</button>
+  </div>
+
   <script>
     const { DateTime, FixedOffsetZone } = luxon;
 
@@ -75,7 +90,45 @@
       { label: "90%", value: 0.90 }
     ];
 
-    // ===== Hemisphere handling (unchanged UI; minor tweaks inside) =====
+    // ===== NEW: Percentage formatting settings =====
+    const PCT_METHOD_KEY = "pctMethod";
+    const PCT_DECIMALS_KEY = "pctDecimals";
+    const pctMethodSelect = document.getElementById("pctMethod");
+    const pctDecimalsInput = document.getElementById("pctDecimals");
+    const applyPctBtn = document.getElementById("applyPctSettings");
+
+    function getPctSettings() {
+      const method = localStorage.getItem(PCT_METHOD_KEY) || "truncate";
+      const decimals = parseInt(localStorage.getItem(PCT_DECIMALS_KEY) || "2", 10);
+      return { method, decimals };
+    }
+
+    function formatPercentage(rawPct) {
+      const { method, decimals } = getPctSettings();
+      const multiplier = Math.pow(10, decimals);
+      
+      let result;
+      if (method === "round") {
+        result = Math.round(rawPct * multiplier) / multiplier;
+      } else {
+        result = Math.floor(rawPct * multiplier) / multiplier;
+      }
+      
+      return result.toFixed(decimals);
+    }
+
+    applyPctBtn.addEventListener("click", () => {
+      const decimals = parseInt(pctDecimalsInput.value, 10);
+      if (isNaN(decimals) || decimals < 0 || decimals > 10) {
+        alert("Please enter a valid number of decimal places (0-10).");
+        return;
+      }
+      localStorage.setItem(PCT_METHOD_KEY, pctMethodSelect.value);
+      localStorage.setItem(PCT_DECIMALS_KEY, decimals.toString());
+      updateAll();
+    });
+
+    // ===== Hemisphere handling (unchanged) =====
     const hemiSelect = document.getElementById("hemisphere");
     const HEMI_KEY = "seasonHemisphere";
     const hemiEmoji = { north: "🍂", south: "🌱" };
@@ -181,8 +234,7 @@
       applyFixedOffset(dst);
     });
 
-    // ===== NEW: Auto season boundaries via Astronomy Engine =====
-    // Cache seasons per year to avoid recomputing every second.
+    // ===== Auto season boundaries via Astronomy Engine =====
     const seasonsCache = new Map();
     function seasonsForYear(y) {
       if (!seasonsCache.has(y)) {
@@ -197,25 +249,23 @@
       return seasonsCache.get(y);
     }
 
-    // Determine current season interval (as defined for the Northern Hemisphere),
-    // then remap labels for Southern Hemisphere as needed.
     function currentSeasonBounds(nowUTC, hemi) {
       const y = nowUTC.year;
       const cur = seasonsForYear(y);
       const prev = seasonsForYear(y - 1);
       const next = seasonsForYear(y + 1);
 
-      let startUTC, endUTC, index; // index: 0 spring, 1 summer, 2 autumn, 3 winter (north labels)
+      let startUTC, endUTC, index;
       if (nowUTC < cur.mar) {
-        startUTC = prev.dec; endUTC = cur.mar; index = 3;          // winter (prev Dec -> this Mar)
+        startUTC = prev.dec; endUTC = cur.mar; index = 3;
       } else if (nowUTC < cur.jun) {
-        startUTC = cur.mar; endUTC = cur.jun; index = 0;           // spring
+        startUTC = cur.mar; endUTC = cur.jun; index = 0;
       } else if (nowUTC < cur.sep) {
-        startUTC = cur.jun; endUTC = cur.sep; index = 1;           // summer
+        startUTC = cur.jun; endUTC = cur.sep; index = 1;
       } else if (nowUTC < cur.dec) {
-        startUTC = cur.sep; endUTC = cur.dec; index = 2;           // autumn
+        startUTC = cur.sep; endUTC = cur.dec; index = 2;
       } else {
-        startUTC = cur.dec; endUTC = next.mar; index = 3;          // winter (this Dec -> next Mar)
+        startUTC = cur.dec; endUTC = next.mar; index = 3;
       }
 
       function labelsFor(index, hemi) {
@@ -225,7 +275,7 @@
           { seasonName: "astronomical autumn", start: "Autumn begins (equinox)", end: "Winter begins (solstice)", emoji: "🍂" },
           { seasonName: "astronomical winter", start: "Winter begins (solstice)", end: "Spring begins (equinox)", emoji: "❄️" }
         ];
-        const southMap = [2, 3, 0, 1]; // map north index -> south index
+        const southMap = [2, 3, 0, 1];
         const rec = (hemi === "south") ? north[southMap[index]] : north[index];
         return {
           seasonName: rec.seasonName,
@@ -238,7 +288,7 @@
       return { startUTC, endUTC, index, ...labelsFor(index, hemi) };
     }
 
-    // ===== Renderers (updated to use dynamic bounds) =====
+    // ===== Renderers (updated to use formatPercentage) =====
     function updateSeasonHeading(bounds) {
       const hemiChoice = (localStorage.getItem(HEMI_KEY) || "auto");
       const hemi = hemiChoice === "auto" ? getHemisphere() : hemiChoice;
@@ -260,11 +310,11 @@
         const totalSeconds = endUTC.diff(startUTC).as("seconds");
         const elapsed = nowUTC.diff(startUTC).as("seconds");
         const rawPct = (elapsed / totalSeconds) * 100;
-        const pctTrunc2 = Math.floor(rawPct * 100) / 100; // floor to 2 decimals
+        const formattedPct = formatPercentage(rawPct);
 
-        let text = `${seasonName.charAt(0).toUpperCase() + seasonName.slice(1)} is ${pctTrunc2.toFixed(2)}% complete (UTC).`;
+        let text = `${seasonName.charAt(0).toUpperCase() + seasonName.slice(1)} is ${formattedPct}% complete (UTC).`;
 
-        if (pctTrunc2 >= 99.99 && nowUTC < endUTC) {
+        if (parseFloat(formattedPct) >= 99.99 && nowUTC < endUTC) {
           const remaining = Math.max(0, Math.floor(endUTC.diff(nowUTC, "seconds").seconds));
           const mm = Math.floor(remaining / 60);
           const ss = String(remaining % 60).padStart(2, "0");
@@ -360,6 +410,11 @@
       if (savedOffset) offsetInput.value = savedOffset;
       const z = getUserFixedZone();
       setUserOffsetDisplay(z ? z.mins : null);
+
+      // Percentage formatting
+      const { method, decimals } = getPctSettings();
+      pctMethodSelect.value = method;
+      pctDecimalsInput.value = decimals;
     })();
 
     updateAll();
