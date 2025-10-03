@@ -8,6 +8,32 @@
   <script>
     const { DateTime, FixedOffsetZone } = luxon;
 
+    // --- Storage keys for percentage formatting ---
+    const PCT_METHOD_KEY = "pctMethod";
+    const PCT_DECIMALS_KEY = "pctDecimals";
+
+    // --- Get percentage formatting settings ---
+    function getPctSettings() {
+      const method = localStorage.getItem(PCT_METHOD_KEY) || "truncate";
+      const decimals = parseInt(localStorage.getItem(PCT_DECIMALS_KEY) || "2", 10);
+      return { method, decimals };
+    }
+
+    // --- Format percentage based on user settings ---
+    function formatPercentage(rawPct) {
+      const { method, decimals } = getPctSettings();
+      const multiplier = Math.pow(10, decimals);
+      
+      let result;
+      if (method === "round") {
+        result = Math.round(rawPct * multiplier) / multiplier;
+      } else {
+        result = Math.floor(rawPct * multiplier) / multiplier;
+      }
+      
+      return result.toFixed(decimals);
+    }
+
     // --- Storage & parsing of user-specified UTC offset (in hours, decimal allowed) ---
     function getUserOffsetMinutes() {
       const stored = localStorage.getItem('userUtcOffset');
@@ -92,11 +118,10 @@
       if (passedSeconds < 0) passedSeconds = 0;
       if (passedSeconds > totalSeconds) passedSeconds = 0; // after year end, roll to 0
 
-     // Percentage with TWO decimals always (display only, truncated)
-const rawPercentage = (passedSeconds / totalSeconds) * 100;
-const truncated = Math.floor(rawPercentage * 100) / 100; // truncate to 2 decimals
-let percentFragment = `(${truncated.toFixed(2)}% complete)`;
-
+      // Percentage with user-defined formatting
+      const rawPercentage = (passedSeconds / totalSeconds) * 100;
+      const formattedPct = formatPercentage(rawPercentage);
+      let percentFragment = `(${formattedPct}% complete)`;
 
       // --- Exact threshold logic for last 0.01% of the year (leap-year aware) ---
       const remainingSeconds = totalSeconds - passedSeconds;
@@ -184,6 +209,26 @@ let percentFragment = `(${truncated.toFixed(2)}% complete)`;
         updateSeconds();
       });
 
+      // Percentage formatting controls
+      const pctMethodSelect = document.getElementById('pctMethod');
+      const pctDecimalsInput = document.getElementById('pctDecimals');
+      const applyPctBtn = document.getElementById('applyPctSettings');
+
+      const { method, decimals } = getPctSettings();
+      pctMethodSelect.value = method;
+      pctDecimalsInput.value = decimals;
+
+      applyPctBtn.addEventListener('click', () => {
+        const decimals = parseInt(pctDecimalsInput.value, 10);
+        if (isNaN(decimals) || decimals < 0 || decimals > 10) {
+          alert("Please enter a valid number of decimal places (0-10).");
+          return;
+        }
+        localStorage.setItem(PCT_METHOD_KEY, pctMethodSelect.value);
+        localStorage.setItem(PCT_DECIMALS_KEY, decimals.toString());
+        updateSeconds();
+      });
+
       updateSeconds();
       setInterval(updateSeconds, 1000);
     };
@@ -231,13 +276,30 @@ let percentFragment = `(${truncated.toFixed(2)}% complete)`;
       font-size: 1.05em;
       color: #0a7;
     }
+    .pct-controls {
+      margin-top: 2em;
+      padding: 1em;
+      background: #fff;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+    }
+    .pct-controls label {
+      margin-right: 0.5em;
+    }
+    .pct-controls select,
+    .pct-controls input[type="number"] {
+      margin-right: 1em;
+    }
+    .pct-controls input[type="number"] {
+      width: 70px;
+    }
   </style>
 </head>
 <body>
   <h1 id="headingYear">Seconds Passed in the Current Year</h1>
   <div class="description">
     This page ignores Daylight Saving Time by default (uses local <strong>standard</strong> time).
-    If your region is in DST at New Year’s or year-end (parts of Australia),
+    If your region is in DST at New Year's or year-end (parts of Australia),
     use the custom offset or the quick buttons below so the counter reaches exactly 100% at local midnight.
   </div>
 
@@ -260,6 +322,20 @@ let percentFragment = `(${truncated.toFixed(2)}% complete)`;
       <button id="useEndOfYearOffset">Use Dec 31-Jan 1 midnight offset</button>
       <button id="clearCustomOffset">Clear custom offset</button>
     </div>
+  </div>
+
+  <div class="pct-controls">
+    <strong>Percentage Formatting:</strong><br>
+    <label for="pctMethod">Method:</label>
+    <select id="pctMethod">
+      <option value="truncate">Truncate (floor)</option>
+      <option value="round">Round</option>
+    </select>
+    
+    <label for="pctDecimals">Decimal places:</label>
+    <input type="number" id="pctDecimals" min="0" max="10" value="2" />
+    
+    <button id="applyPctSettings">Apply</button>
   </div>
 </body>
 </html>
