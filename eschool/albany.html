@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Albany Visit Photo</title>
+    <style>
+        /* Simple styling to make the content centered and the button visible */
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 20px;
+        }
+        
+        /* Image Container Styling: 
+           This style makes the image display smaller on the page. 
+           I've set a maximum width for a good balance.
+        */
+        .small-image {
+            max-width: 400px; /* Adjust this value (e.g., to 300px or 500px) as needed */
+            height: auto;
+            border: 2px solid #333; 
+            margin-bottom: 20px;
+            display: block; /* To center it properly if it's the only thing in the link */
+            margin-left: auto;
+            margin-right: auto;
+            cursor: pointer; /* Indicates it's clickable */
+        }
+
+        .home-button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            text-decoration: none;
+            display: inline-block;
+        }
+
+        .caption {
+            font-style: italic;
+            margin-bottom: 20px;
+            color: #555;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Hillcrest Elementary School Albany Visit 1988</h1>
+
+    <hr>
+
+    <a href="images/albany.jpg" target="_blank" title="Click to view full size image">
+        <img 
+            src="images/albany.jpg" 
+            alt="Hillcrest Elementary School Albany Visit 1988 Photo"
+            class="small-image" 
+        >
+    </a>
+    
+    <p class="caption">Click the image to view it full size in a new tab.</p>
+
+    <hr>
+
+    <a href="index.html" class="home-button">
+        Go to Home Page
+    </a>
+
+</body>
+</html>
