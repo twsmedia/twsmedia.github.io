@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Great-Grandparents</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f4f4f4; /* Light background for the page */
+            color: #333;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        /* Container for the two columns */
+        .ancestor-columns {
+            display: flex; /* Enables flexbox layout */
+            justify-content: center; /* Centers the columns on the page */
+            gap: 40px; /* Space between the two columns */
+            flex-wrap: wrap; /* Allows columns to stack on smaller screens */
+        }
+
+        /* Style for each column */
+        .column {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            width: 45%; /* Makes each column take up about half the space */
+            min-width: 300px; /* Ensures they don't get too narrow */
+            box-sizing: border-box; /* Includes padding in the width calculation */
+        }
+
+        .column h3 {
+            border-bottom: 2px solid #ccc;
+            padding-bottom: 10px;
+            margin-top: 0;
+            color: #555;
+        }
+
+        /* Style for the list of names */
+        .ancestor-list {
+            list-style: none; /* Removes bullet points */
+            padding: 0;
+            margin: 0;
+        }
+
+        .ancestor-list li {
+            padding: 5px 0;
+            /* Removed the general border-bottom so we can apply it only to even-numbered items for grouping */
+        }
+
+        /* NEW RULE: Add a space and a separator after every pair (even-numbered list items) */
+        .ancestor-list li:nth-child(even) {
+            margin-bottom: 15px; /* Creates the space below the pair */
+            border-bottom: 1px dotted #ccc; /* Optional separator line to emphasize the grouping */
+            padding-bottom: 5px; /* Adds space above the separator line */
+        }
+
+        /* Ensures the last item in the list does not have a bottom border/space */
+        .ancestor-list li:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 5px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Great-Grandparents of Timothy W Schmits</h1>
+        <p>my distant grandparents</p>
+    </div>
+
+    <div class="ancestor-columns">
+
+        <div class="column great-grandparents">
+            <h3>8 Great-Grandparents (GGP)</h3>
+            <ul class="ancestor-list">
+                <li>[1] Walter Daniel Schmits 1869-1923</li>
+                <li>[2] Louise Josephine Kotzerke 1880-1971</li>
+                <li>[3] William Henry Schopfer 1873-1921</li>
+                <li>[4] Charlotte Johanna Hill d.1960</li>
+                <li>[5] Anton Kleinhans</li>
+                <li>[6] Anna Price / Anna Preis</li>
+                <li>[7] William Heinrich</li>
+                <li>[8] Katherine Medrow</li>
+            </ul>
+        </div>
+
+        <div class="column great-great-grandparents">
+            <h3>16 Great-Great-Grandparents (GGGP)</h3>
+            <ul class="ancestor-list">
+                <li>[1] Christof Daniel Schmits</li>
+                <li>[2] Mathilde Erbslöh</li>
+                <li>[3] Joseph Kotzerke</li>
+                <li>[4] Louise Oswald</li>
+
+                <li>[5] William Frederick Schopfer 1850-1897</li>
+                <li>[6] Emilie Barbara Emme 1853-1906</li>
+                <li>[7] Augustus Hill born 1846/1848-1911</li>
+                <li>[8] Kathryn Maria Dittmar 1854</li>
+
+                <li>[9] Johann Conrad Kleinhans</li>
+                <li>[10] Anna Marie Boehm</li>
+                <li>[11] Michael Price / Michael Preis</li>
+                <li>[12] Magdalina Blum</li>
+
+                <li>[13] William Heinrich / Wilheim Heinrich </li>
+                <li>[14] Freiderika Reinhardt</li>
+                <li>[15] Paul Medrow</li>
+                <li>[16] Elizabeth Schaich</li>
+            </ul>
+        </div>
+
+    </div>
+
+</body>
+</html>
