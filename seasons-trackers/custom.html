@@ -10,7 +10,7 @@
     .note { color:#555; margin-bottom: 12px; font-size: 14px; }
     .row { display:flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 10px 0; }
     label { font-size: 16px; }
-    input[type="text"], input[type="datetime-local"], button { font-size: 16px; padding: 6px 8px; }
+    input[type="text"], input[type="datetime-local"], button, select { font-size: 16px; padding: 6px 8px; }
     #seasonProgress { margin: 10px 0; }
     #seasonTimes { margin: 8px 0 14px; }
     #milestones { font-size: 16px; margin-bottom: 16px; }
@@ -24,6 +24,9 @@
     .delete-preset { background: #f44336; }
     .delete-preset:hover { background: #d32f2f; }
     input[type="text"].preset-name { width: 200px; }
+
+    /* NEW: small helper style */
+    .inline { display: inline-flex; align-items: center; gap: 10px; }
   </style>
 </head>
 <body>
@@ -70,6 +73,26 @@
   <div id="milestones"></div>
   <div id="currentTime" class="note"></div>
 
+  <div class="divider"></div>
+
+  <!-- NEW: Bottom Display Options -->
+  <div id="displayOptions">
+    <h3>Display Options</h3>
+    <div class="row">
+      <label for="pctPlaces">Decimal places:</label>
+      <select id="pctPlaces" title="How many places after the decimal to show">
+        <option>0</option><option>1</option><option selected>2</option><option>3</option><option>4</option><option>5</option><option>6</option>
+      </select>
+
+      <span class="inline" role="group" aria-label="Rounding mode">
+        <label><input type="radio" name="pctMode" value="round" checked> Round</label>
+        <label><input type="radio" name="pctMode" value="truncate"> Truncate (floor)</label>
+      </span>
+
+      <span id="preview" class="note"></span>
+    </div>
+  </div>
+
   <script>
     (function () {
       const { DateTime, FixedOffsetZone } = luxon;
@@ -109,7 +132,10 @@
         START: "customSeason_start",
         END: "customSeason_end",
         OFFSET: "customSeason_offset",
-        PRESETS: "customSeason_presets"
+        PRESETS: "customSeason_presets",
+        // NEW
+        PCT_PLACES: "customSeason_pctPlaces",
+        PCT_MODE: "customSeason_pctMode"
       };
 
       // --- Preset management ---
@@ -220,16 +246,32 @@
       const presetNameInput = $("presetName");
       const savePresetBtn = $("savePresetBtn");
 
+      // NEW: bottom controls
+      const pctPlacesSel = $("pctPlaces");
+      const pctModeRadios = () => [...document.querySelectorAll('input[name="pctMode"]')];
+      const preview = $("preview");
+
       // --- Load values from localStorage ---
       function loadFromLocalStorage(){
         const name = localStorage.getItem(LS.NAME) || "";
         const startV = localStorage.getItem(LS.START) || "";
         const endV = localStorage.getItem(LS.END) || "";
         const off = localStorage.getItem(LS.OFFSET) || "";
+
+        // NEW: places/mode
+        const places = localStorage.getItem(LS.PCT_PLACES);
+        const mode = localStorage.getItem(LS.PCT_MODE);
+
         nameInput.value = name;
         startInput.value = startV;
         endInput.value = endV;
         offsetInput.value = off;
+
+        if (places !== null) pctPlacesSel.value = String(places);
+        if (mode) {
+          const radio = pctModeRadios().find(r => r.value === mode);
+          if (radio) radio.checked = true;
+        }
       }
 
       // --- Zone helpers ---
@@ -262,6 +304,30 @@
         );
       }
 
+      // NEW: percent formatter (round vs truncate)
+      function formatPercent(pct, places, mode){
+        // Clamp to [0,100] for display safety
+        const val = Math.min(100, Math.max(0, pct));
+        const factor = 10 ** places;
+
+        let out;
+        if (mode === "truncate") {
+          // floor at the specified precision
+          out = Math.trunc(val * factor) / factor;
+        } else {
+          // default: round
+          out = Math.round(val * factor) / factor;
+        }
+        // Always show fixed decimals per user choice
+        return out.toFixed(places) + "%";
+      }
+
+      // NEW: adaptive near-100% message threshold
+      function nearHundredMessage(places){
+        const threshold = 100 - 1 / (10 ** places); // e.g., places=2 => 99.99
+        return `greater than ${threshold.toFixed(places)}% complete.`;
+      }
+
       // --- Apply settings (save to localStorage and render) ---
       function applySettings() {
         const val = offsetInput.value.trim();
@@ -276,6 +342,12 @@
         localStorage.setItem(LS.START, startInput.value);
         localStorage.setItem(LS.END, endInput.value);
         localStorage.setItem(LS.OFFSET, val);
+
+        // Also persist display options
+        const places = parseInt(pctPlacesSel.value, 10) || 0;
+        const mode = (pctModeRadios().find(r => r.checked) || {value: "round"}).value;
+        localStorage.setItem(LS.PCT_PLACES, String(places));
+        localStorage.setItem(LS.PCT_MODE, mode);
         
         setOffsetStatus();
         render();
@@ -298,6 +370,14 @@
 
         const headingName = nm ? nm : "Custom Season";
         $("seasonHeading").innerHTML = `<strong>${headingName}</strong>`;
+
+        // Load display prefs each render
+        const places = parseInt(localStorage.getItem(LS.PCT_PLACES) ?? pctPlacesSel.value, 10) || 0;
+        const mode = localStorage.getItem(LS.PCT_MODE) || (pctModeRadios().find(r => r.checked) || {value:"round"}).value;
+
+        // Update live preview
+        const demoIn = 89.999;
+        preview.textContent = `Preview: ${demoIn}% → ${formatPercent(demoIn, places, mode)} (mode: ${mode}, places: ${places})`;
 
         if (!startDT || !endDT){
           $("seasonProgress").textContent = "Enter a valid start and end date-time, then press Apply / Save.";
@@ -324,11 +404,15 @@
         if (now < startDT){
           progressText = "This season hasn't started yet.";
         } else if (now >= endDT){
-          progressText = "This season has ended (100.00% complete).";
-        } else if (pct >= 99.99 && pct < 100){
-          progressText = "This season is greater than 99.99% complete.";
+          progressText = `This season has ended (${formatPercent(100, places, mode)} complete).`;
         } else {
-          progressText = `This season is ${pct.toFixed(2)}% complete.`;
+          // Near-100% special message (before end)
+          const nearThreshold = 100 - 1 / (10 ** places); // e.g., 99.99 when places=2
+          if (pct >= nearThreshold && pct < 100) {
+            progressText = `This season is ${nearHundredMessage(places)}`;
+          } else {
+            progressText = `This season is ${formatPercent(pct, places, mode)} complete.`;
+          }
         }
         $("seasonProgress").textContent = progressText;
 
@@ -367,12 +451,67 @@
         }
       });
 
+      // NEW: instantly persist/display when changing bottom controls
+      $("pctPlaces").addEventListener("change", () => {
+        localStorage.setItem(LS.PCT_PLACES, String(parseInt(pctPlacesSel.value,10)||0));
+        render();
+      });
+      pctModeRadios().forEach(r => r.addEventListener("change", () => {
+        localStorage.setItem(LS.PCT_MODE, r.value);
+        render();
+      }));
+
       // --- Init ---
       loadFromLocalStorage();
       setOffsetStatus();
       renderPresetButtons();
       render();
-      timer = setInterval(render, 1000);
+      
+timer = setInterval(render, 1000);
+
+// --- Countdown at bottom ---
+const countdownDiv = document.createElement("div");
+countdownDiv.id = "countdown";
+countdownDiv.style.fontSize = "18px";
+countdownDiv.style.marginTop = "20px";
+countdownDiv.style.fontWeight = "bold";
+document.body.appendChild(countdownDiv);
+
+function formatCountdown(seconds) {
+  if (seconds < 0) seconds = 0;
+  const days = Math.floor(seconds / 86400);
+  const hrs = Math.floor((seconds % 86400) / 3600);
+  const mins = Math.floor((seconds % 3600) / 60);
+  const secs = Math.floor(seconds % 60);
+  if (days >= 1) {
+    return `${days}d ${hrs.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
+  } else {
+    const totalHrs = Math.floor(seconds / 3600);
+    return `${totalHrs}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
+  }
+}
+
+function updateCountdown() {
+  const { zone } = getUserFixedZone();
+  const startDT = parseLocalInputToZoneDT(startInput.value, zone);
+  const endDT   = parseLocalInputToZoneDT(endInput.value, zone);
+  if (!startDT || !endDT) {
+    countdownDiv.textContent = "";
+    return;
+  }
+  const now = luxon.DateTime.now().setZone(zone);
+  const remaining = endDT.diff(now, "seconds").seconds;
+  if (remaining <= 0) {
+    countdownDiv.textContent = "⏳ Countdown: 00:00:00 (season ended)";
+  } else {
+    countdownDiv.textContent = "⏳ Countdown: " + formatCountdown(remaining);
+  }
+}
+
+// make countdown refresh once per second
+setInterval(updateCountdown, 1000);
+updateCountdown();
+
     })();
   </script>
 </body>
