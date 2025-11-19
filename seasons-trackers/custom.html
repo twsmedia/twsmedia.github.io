@@ -70,6 +70,11 @@
   <div id="seasonHeading"></div>
   <div id="seasonProgress"></div>
   <div id="seasonTimes" class="note"></div>
+
+  <!-- New: seconds + countdown directly under the seconds line -->
+  <div id="secondsLine"></div>
+  <div id="countdown" style="font-size:18px; font-weight:bold; margin-bottom:12px;"></div>
+
   <div id="milestones"></div>
   <div id="currentTime" class="note"></div>
 
@@ -251,6 +256,22 @@
       const pctModeRadios = () => [...document.querySelectorAll('input[name="pctMode"]')];
       const preview = $("preview");
 
+      // Dynamic display elements
+      const secondsLineEl = $("secondsLine");
+      const countdownEl = $("countdown");
+      const milestonesEl = $("milestones");
+      const seasonHeadingEl = $("seasonHeading");
+      const seasonProgressEl = $("seasonProgress");
+      const seasonTimesEl = $("seasonTimes");
+      const currentTimeEl = $("currentTime");
+
+      // Cached static state
+      let cachedZone = FixedOffsetZone.utcInstance;
+      let cachedLabel = "UTC";
+      let cachedStartDT = null;
+      let cachedEndDT = null;
+      let cachedTotalSeconds = 0;
+
       // --- Load values from localStorage ---
       function loadFromLocalStorage(){
         const name = localStorage.getItem(LS.NAME) || "";
@@ -328,7 +349,81 @@
         return `greater than ${threshold.toFixed(places)}% complete.`;
       }
 
-      // --- Apply settings (save to localStorage and render) ---
+      // Helper: get current percent display settings
+      function getPercentPrefs() {
+        const places = parseInt(localStorage.getItem(LS.PCT_PLACES) ?? pctPlacesSel.value, 10) || 0;
+        const mode = localStorage.getItem(LS.PCT_MODE) || (pctModeRadios().find(r => r.checked) || {value:"round"}).value;
+        return { places, mode };
+      }
+
+      function updatePreview() {
+        const { places, mode } = getPercentPrefs();
+        const demoIn = 89.999;
+        preview.textContent = `Preview: ${demoIn}% → ${formatPercent(demoIn, places, mode)} (mode: ${mode}, places: ${places})`;
+      }
+
+      // --- Recompute static layout (no per-second stuff here) ---
+      function recomputeStatic() {
+        const zInfo = getUserFixedZone();
+        cachedZone = zInfo.zone;
+        cachedLabel = zInfo.label;
+
+        $("tzNote").textContent = `This tracker uses a fixed offset: ${cachedLabel} (ignores DST).`;
+
+        const nm = nameInput.value.trim();
+        const headingName = nm ? nm : "Custom Season";
+        seasonHeadingEl.innerHTML = `<strong>${headingName}</strong>`;
+
+        const startDT = parseLocalInputToZoneDT(startInput.value, cachedZone);
+        const endDT   = parseLocalInputToZoneDT(endInput.value, cachedZone);
+
+        // Reset cached state by default
+        cachedStartDT = null;
+        cachedEndDT = null;
+        cachedTotalSeconds = 0;
+
+        const fmt = "EEE, MMM d, yyyy, HH:mm:ss";
+
+        if (!startDT || !endDT){
+          seasonTimesEl.textContent = "";
+          milestonesEl.innerHTML = "";
+          secondsLineEl.textContent = "";
+          countdownEl.textContent = "";
+          currentTimeEl.textContent = "";
+          seasonProgressEl.textContent = "Enter a valid start and end date-time, then press Apply / Save.";
+          return;
+        }
+
+        if (endDT <= startDT){
+          seasonTimesEl.textContent = "";
+          milestonesEl.innerHTML = "";
+          secondsLineEl.textContent = "";
+          countdownEl.textContent = "";
+          currentTimeEl.textContent = "";
+          seasonProgressEl.textContent = "End must be after Start.";
+          return;
+        }
+
+        // Valid range – cache and render static bits
+        cachedStartDT = startDT;
+        cachedEndDT = endDT;
+        cachedTotalSeconds = endDT.diff(startDT).as("seconds");
+
+        seasonTimesEl.innerHTML =
+          `Start: <strong>${startDT.toFormat(fmt)} ${cachedLabel}</strong><br>` +
+          `End: <strong>${endDT.toFormat(fmt)} ${cachedLabel}</strong>`;
+
+        // Build milestone list ONCE (static)
+        let html = `<h3>Milestone Dates (${cachedLabel}):</h3><ul>`;
+        for (const m of milestones){
+          const dt = startDT.plus({ seconds: cachedTotalSeconds * m.value });
+          html += `<li>${m.label} complete: <strong>${dt.toFormat(fmt)} ${cachedLabel}</strong></li>`;
+        }
+        html += `</ul>`;
+        milestonesEl.innerHTML = html;
+      }
+
+      // --- Apply settings (save to localStorage and recompute static) ---
       function applySettings() {
         const val = offsetInput.value.trim();
         const mins = parseOffsetToMinutes(val);
@@ -344,69 +439,56 @@
         localStorage.setItem(LS.OFFSET, val);
 
         // Also persist display options
-        const places = parseInt(pctPlacesSel.value, 10) || 0;
-        const mode = (pctModeRadios().find(r => r.checked) || {value: "round"}).value;
+        const { places, mode } = getPercentPrefs();
         localStorage.setItem(LS.PCT_PLACES, String(places));
         localStorage.setItem(LS.PCT_MODE, mode);
         
         setOffsetStatus();
-        render();
+        recomputeStatic();
+        updatePreview();
+        tick(); // refresh dynamic bits immediately
+      }
 
-        if (!timer){
-          timer = setInterval(render, 1000);
+      // --- Dynamic per-second update (NO heavy DOM rebuilding) ---
+      function formatCountdown(seconds) {
+        if (seconds < 0) seconds = 0;
+        const days = Math.floor(seconds / 86400);
+        const hrs = Math.floor((seconds % 86400) / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+        if (days >= 1) {
+          return `${days}d ${hrs.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
+        } else {
+          const totalHrs = Math.floor(seconds / 3600);
+          return `${totalHrs}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
         }
       }
 
-      // --- Rendering ---
-      let timer = null;
+      function tick() {
+        updatePreview(); // keep preview consistent with any changed controls
 
-      function render(){
-        const { zone, label } = getUserFixedZone();
-        $("tzNote").textContent = `This tracker uses a fixed offset: ${label} (ignores DST).`;
-
-        const nm = nameInput.value.trim();
-        const startDT = parseLocalInputToZoneDT(startInput.value, zone);
-        const endDT   = parseLocalInputToZoneDT(endInput.value, zone);
-
-        const headingName = nm ? nm : "Custom Season";
-        $("seasonHeading").innerHTML = `<strong>${headingName}</strong>`;
-
-        // Load display prefs each render
-        const places = parseInt(localStorage.getItem(LS.PCT_PLACES) ?? pctPlacesSel.value, 10) || 0;
-        const mode = localStorage.getItem(LS.PCT_MODE) || (pctModeRadios().find(r => r.checked) || {value:"round"}).value;
-
-        // Update live preview
-        const demoIn = 89.999;
-        preview.textContent = `Preview: ${demoIn}% → ${formatPercent(demoIn, places, mode)} (mode: ${mode}, places: ${places})`;
-
-        if (!startDT || !endDT){
-          $("seasonProgress").textContent = "Enter a valid start and end date-time, then press Apply / Save.";
-          $("seasonTimes").textContent = "";
-          $("milestones").innerHTML = "";
-          $("currentTime").textContent = "";
-          return;
-        }
-        if (endDT <= startDT){
-          $("seasonProgress").textContent = "End must be after Start.";
-          $("seasonTimes").textContent = "";
-          $("milestones").innerHTML = "";
-          $("currentTime").textContent = "";
+        if (!cachedStartDT || !cachedEndDT || cachedTotalSeconds <= 0) {
+          // Nothing to animate yet
+          secondsLineEl.textContent = "";
+          countdownEl.textContent = "";
+          currentTimeEl.textContent = "";
           return;
         }
 
-        const now = DateTime.now().setZone(zone);
-        const totalSeconds = endDT.diff(startDT).as("seconds");
-        const elapsedSeconds = now.diff(startDT).as("seconds");
+        const { places, mode } = getPercentPrefs();
+        const now = DateTime.now().setZone(cachedZone);
+
+        const totalSeconds = cachedTotalSeconds;
+        const elapsedSeconds = now.diff(cachedStartDT).as("seconds");
         const clampedElapsed = Math.max(0, Math.min(totalSeconds, elapsedSeconds));
         const pct = Math.max(0, Math.min(100, (clampedElapsed/totalSeconds)*100));
 
         let progressText = "";
-        if (now < startDT){
+        if (now < cachedStartDT){
           progressText = "This season hasn't started yet.";
-        } else if (now >= endDT){
+        } else if (now >= cachedEndDT){
           progressText = `This season has ended (${formatPercent(100, places, mode)} complete).`;
         } else {
-          // Near-100% special message (before end)
           const nearThreshold = 100 - 1 / (10 ** places); // e.g., 99.99 when places=2
           if (pct >= nearThreshold && pct < 100) {
             progressText = `This season is ${nearHundredMessage(places)}`;
@@ -414,27 +496,22 @@
             progressText = `This season is ${formatPercent(pct, places, mode)} complete.`;
           }
         }
-        $("seasonProgress").textContent = progressText;
+        seasonProgressEl.textContent = progressText;
 
+        // Seconds line
+        secondsLineEl.textContent =
+          `${Math.floor(clampedElapsed).toLocaleString()} seconds have passed out of ${Math.floor(totalSeconds).toLocaleString()}.`;
+
+        // Current time
         const fmt = "EEE, MMM d, yyyy, HH:mm:ss";
-        $("seasonTimes").innerHTML =
-          `Start: <strong>${startDT.toFormat(fmt)} ${label}</strong><br>` +
-          `End: <strong>${endDT.toFormat(fmt)} ${label}</strong>`;
+        currentTimeEl.textContent = `⏱ Current time: ${now.toFormat(fmt)} (${cachedLabel})`;
 
-        let html = `<h3>Milestone Dates (${label}):</h3>`;
-        html += `<p><strong>${Math.floor(clampedElapsed).toLocaleString()}</strong> seconds have passed out of <strong>${Math.floor(totalSeconds).toLocaleString()}</strong>.</p><ul>`;
-        for (const m of milestones){
-          const dt = startDT.plus({ seconds: totalSeconds * m.value });
-          html += `<li>${m.label} complete: <strong>${dt.toFormat(fmt)} ${label}</strong></li>`;
-        }
-        html += `</ul>`;
-        $("milestones").innerHTML = html;
-
-        $("currentTime").textContent = `⏱ Current time: ${now.toFormat(fmt)} (${label})`;
-
-        if (now >= endDT && timer){
-          clearInterval(timer);
-          timer = null;
+        // Countdown
+        const remaining = cachedEndDT.diff(now, "seconds").seconds;
+        if (remaining <= 0) {
+          countdownEl.textContent = "⏳ Countdown: 00:00:00 (season ended)";
+        } else {
+          countdownEl.textContent = "⏳ Countdown: " + formatCountdown(remaining);
         }
       }
 
@@ -454,63 +531,25 @@
       // NEW: instantly persist/display when changing bottom controls
       $("pctPlaces").addEventListener("change", () => {
         localStorage.setItem(LS.PCT_PLACES, String(parseInt(pctPlacesSel.value,10)||0));
-        render();
+        updatePreview();
+        tick();
       });
       pctModeRadios().forEach(r => r.addEventListener("change", () => {
         localStorage.setItem(LS.PCT_MODE, r.value);
-        render();
+        updatePreview();
+        tick();
       }));
 
       // --- Init ---
       loadFromLocalStorage();
       setOffsetStatus();
       renderPresetButtons();
-      render();
-      
-timer = setInterval(render, 1000);
+      recomputeStatic();
+      updatePreview();
+      tick();
 
-// --- Countdown at bottom ---
-const countdownDiv = document.createElement("div");
-countdownDiv.id = "countdown";
-countdownDiv.style.fontSize = "18px";
-countdownDiv.style.marginTop = "20px";
-countdownDiv.style.fontWeight = "bold";
-document.body.appendChild(countdownDiv);
-
-function formatCountdown(seconds) {
-  if (seconds < 0) seconds = 0;
-  const days = Math.floor(seconds / 86400);
-  const hrs = Math.floor((seconds % 86400) / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  if (days >= 1) {
-    return `${days}d ${hrs.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
-  } else {
-    const totalHrs = Math.floor(seconds / 3600);
-    return `${totalHrs}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
-  }
-}
-
-function updateCountdown() {
-  const { zone } = getUserFixedZone();
-  const startDT = parseLocalInputToZoneDT(startInput.value, zone);
-  const endDT   = parseLocalInputToZoneDT(endInput.value, zone);
-  if (!startDT || !endDT) {
-    countdownDiv.textContent = "";
-    return;
-  }
-  const now = luxon.DateTime.now().setZone(zone);
-  const remaining = endDT.diff(now, "seconds").seconds;
-  if (remaining <= 0) {
-    countdownDiv.textContent = "⏳ Countdown: 00:00:00 (season ended)";
-  } else {
-    countdownDiv.textContent = "⏳ Countdown: " + formatCountdown(remaining);
-  }
-}
-
-// make countdown refresh once per second
-setInterval(updateCountdown, 1000);
-updateCountdown();
+      // Smooth per-second updates (no big DOM rebuilds)
+      setInterval(tick, 1000);
 
     })();
   </script>
