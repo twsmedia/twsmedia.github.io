@@ -2,340 +2,386 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Seconds Passed This Year (User UTC Offset or Local Standard Time)</title>
+  <title>Calendar Year Tracker (Fixed UTC Offset)</title>
   <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
-  <script>
-    const { DateTime, FixedOffsetZone } = luxon;
-
-    // --- Storage keys for percentage formatting ---
-    const PCT_METHOD_KEY = "pctMethod";
-    const PCT_DECIMALS_KEY = "pctDecimals";
-
-    // --- Get percentage formatting settings ---
-    function getPctSettings() {
-      const method = localStorage.getItem(PCT_METHOD_KEY) || "truncate";
-      const decimals = parseInt(localStorage.getItem(PCT_DECIMALS_KEY) || "2", 10);
-      return { method, decimals };
-    }
-
-    // --- Format percentage based on user settings ---
-    function formatPercentage(rawPct) {
-      const { method, decimals } = getPctSettings();
-      const multiplier = Math.pow(10, decimals);
-      
-      let result;
-      if (method === "round") {
-        result = Math.round(rawPct * multiplier) / multiplier;
-      } else {
-        result = Math.floor(rawPct * multiplier) / multiplier;
-      }
-      
-      return result.toFixed(decimals);
-    }
-
-    // --- Storage & parsing of user-specified UTC offset (in hours, decimal allowed) ---
-    function getUserOffsetMinutes() {
-      const stored = localStorage.getItem('userUtcOffset');
-      if (stored !== null && stored !== '') {
-        const num = parseFloat(stored);
-        if (!isNaN(num) && num >= -12 && num <= 14) {
-          return Math.round(num * 60); // minutes east of UTC
-        }
-      }
-      return null;
-    }
-
-    // --- Determine true local STANDARD offset (works in both hemispheres) ---
-    function getStandardOffsetMinutes() {
-      // Use Jan 1 and Jul 1 local times and pick the larger getTimezoneOffset (standard time).
-      const jan = new Date(2025, 0, 1, 0, 0, 0);
-      const jul = new Date(2025, 6, 1, 0, 0, 0);
-      const janOffsetToUTC = jan.getTimezoneOffset(); // minutes to add local→UTC
-      const julOffsetToUTC = jul.getTimezoneOffset();
-      const standardOffsetToUTC = Math.max(janOffsetToUTC, julOffsetToUTC);
-      return -standardOffsetToUTC; // convert to minutes east of UTC (Luxon expects this)
-    }
-
-    // --- Zone selection: user override wins; else local standard time ---
-    function getZoneToUse() {
-      const userMinutes = getUserOffsetMinutes();
-      return userMinutes !== null
-        ? FixedOffsetZone.instance(userMinutes)
-        : FixedOffsetZone.instance(getStandardOffsetMinutes());
-    }
-
-    // --- Pretty UTC±HH:MM formatter (handles :30, :45 offsets) ---
-    function formatOffset(minutes) {
-      const sign = minutes >= 0 ? '+' : '-';
-      const abs = Math.abs(minutes);
-      const h = Math.floor(abs / 60);
-      const m = abs % 60;
-      const mm = String(m).padStart(2, '0');
-      return `UTC${sign}${h}:${mm}`;
-    }
-
-    // --- Helpers for quick-set buttons ---
-    function getMinutesEastAtLocalDate(y, m0, d, hh = 0, mm = 0, ss = 0) {
-      const dt = new Date(y, m0, d, hh, mm, ss);       // local time
-      return -dt.getTimezoneOffset();                  // minutes east of UTC
-    }
-
-    function setCustomOffsetMinutes(minutesEast) {
-      const hours = minutesEast / 60;
-      const stored = Number(hours.toFixed(2));         // keep quarters/halves
-      localStorage.setItem('userUtcOffset', stored);
-      const input = document.getElementById('utcOffsetInput');
-      if (input) input.value = stored;
-      updateSeconds();
-    }
-
-    // --- HH:MM:SS formatter for countdown ---
-    function formatHMS(totalSeconds) {
-      const s = Math.max(0, Math.floor(totalSeconds));
-      const h = Math.floor(s / 3600);
-      const m = Math.floor((s % 3600) / 60);
-      const sec = s % 60;
-      return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
-    }
-
-    // --- Main updater ---
-    function updateSeconds() {
-      const zone = getZoneToUse();
-      const now = DateTime.now().setZone(zone);
-      const currentYear = now.year;
-
-      const startOfYear = DateTime.fromObject(
-        { year: currentYear, month: 1, day: 1, hour: 0, minute: 0, second: 0 },
-        { zone }
-      );
-      const endOfYear = startOfYear.plus({ years: 1 });
-
-      const totalSeconds = Math.floor(endOfYear.diff(startOfYear, "seconds").seconds);
-      let passedSeconds = Math.floor(now.diff(startOfYear, "seconds").seconds);
-
-      // Clamp to start/end behavior
-      if (passedSeconds < 0) passedSeconds = 0;
-      if (passedSeconds > totalSeconds) passedSeconds = 0; // after year end, roll to 0
-
-      // Percentage with user-defined formatting
-      const rawPercentage = (passedSeconds / totalSeconds) * 100;
-      const formattedPct = formatPercentage(rawPercentage);
-      let percentFragment = `(${formattedPct}% complete)`;
-
-      // --- Exact threshold logic for last 0.01% of the year (leap-year aware) ---
-      const remainingSeconds = totalSeconds - passedSeconds;
-      const thresholdSeconds = totalSeconds * 0.0001; // 0.01% tail
-
-      const countdownEl = document.getElementById("countdown");
-      const countdownTimeEl = document.getElementById("countdownTime");
-
-      if (remainingSeconds <= thresholdSeconds && remainingSeconds > 0) {
-        // We are truly beyond 99.99% complete
-        percentFragment = `(Greater than 99.99% complete)`;
-        if (countdownEl && countdownTimeEl) {
-          countdownTimeEl.textContent = formatHMS(remainingSeconds);
-          countdownEl.style.display = '';
-        }
-      } else {
-        if (countdownEl) countdownEl.style.display = 'none';
-      }
-
-      // Heading with current year
-      const h1 = document.getElementById("headingYear");
-      if (h1) h1.textContent = `Seconds Passed in the Year ${currentYear}`;
-
-      // Display line
-      const secEl = document.getElementById("secondsDisplay");
-      if (secEl) {
-        secEl.textContent =
-          `${passedSeconds.toLocaleString()} out of ${totalSeconds.toLocaleString()} seconds have passed in ${currentYear}. ${percentFragment}`;
-      }
-
-      // Info lines
-      const userOffset = getUserOffsetMinutes();
-      const offsetLabel = userOffset !== null
-        ? `Using custom UTC offset: ${formatOffset(userOffset)}`
-        : `Using local standard time offset: ${formatOffset(getStandardOffsetMinutes())}`;
-
-      const utcEl = document.getElementById("utcOffset");
-      if (utcEl) utcEl.textContent = offsetLabel;
-
-      const curEl = document.getElementById("currentTime");
-      if (curEl) curEl.textContent =
-        `Current time (${formatOffset(zone.offset(now.toMillis()))}): ${now.toFormat('HH:mm:ss')}`;
-
-      const detectedZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const tzEl = document.getElementById("timezoneInfo");
-      if (tzEl) tzEl.textContent =
-        `Your detected time zone is ${detectedZone}. You can override it below.`;
-    }
-
-    // --- Initialize and wire controls ---
-    window.onload = () => {
-      const input = document.getElementById('utcOffsetInput');
-      const stored = localStorage.getItem('userUtcOffset');
-      if (stored !== null) input.value = stored;
-
-      input.addEventListener('input', () => {
-        const val = input.value.trim();
-        if (val === '') {
-          localStorage.removeItem('userUtcOffset');
-        } else {
-          const num = parseFloat(val);
-          if (!isNaN(num) && num >= -12 && num <= 14) {
-            localStorage.setItem('userUtcOffset', num);
-          }
-        }
-        updateSeconds();
-      });
-
-      // Quick-set buttons
-      document.getElementById('useCurrentOffset').addEventListener('click', () => {
-        const nowMinutesEast = -new Date().getTimezoneOffset();
-        setCustomOffsetMinutes(nowMinutesEast);
-      });
-
-      document.getElementById('useEndOfYearOffset').addEventListener('click', () => {
-        const y = new Date().getFullYear();
-        // Use 23:59:59 on Dec 31 local time to capture DST state at year end
-        const minutesEast = getMinutesEastAtLocalDate(y, 11, 31, 23, 59, 59);
-        setCustomOffsetMinutes(minutesEast);
-      });
-
-      document.getElementById('clearCustomOffset').addEventListener('click', () => {
-        localStorage.removeItem('userUtcOffset');
-        input.value = '';
-        updateSeconds();
-      });
-
-      // Percentage formatting controls
-      const pctMethodSelect = document.getElementById('pctMethod');
-      const pctDecimalsInput = document.getElementById('pctDecimals');
-      const applyPctBtn = document.getElementById('applyPctSettings');
-
-      const { method, decimals } = getPctSettings();
-      pctMethodSelect.value = method;
-      pctDecimalsInput.value = decimals;
-
-      applyPctBtn.addEventListener('click', () => {
-        const decimals = parseInt(pctDecimalsInput.value, 10);
-        if (isNaN(decimals) || decimals < 0 || decimals > 10) {
-          alert("Please enter a valid number of decimal places (0-10).");
-          return;
-        }
-        localStorage.setItem(PCT_METHOD_KEY, pctMethodSelect.value);
-        localStorage.setItem(PCT_DECIMALS_KEY, decimals.toString());
-        updateSeconds();
-      });
-
-      updateSeconds();
-      setInterval(updateSeconds, 1000);
-    };
-  </script>
   <style>
-    body {
-      font-family: Arial, sans-serif;
-      padding: 2em;
-      background: #f5f5f5;
-      color: #333;
-    }
-    h1 { font-size: 1.8em; }
-    .description {
-      font-size: 0.95em;
-      color: #444;
-      margin-top: 0.3em;
-      margin-bottom: 1.5em;
-    }
-    .seconds {
-      font-size: 1.5em;
-      margin-top: 1em;
-      color: #0077cc;
-    }
-    .info {
-      margin-top: 1em;
-      font-size: 0.95em;
-      color: #555;
-    }
-    .input-box {
-      margin-top: 2em;
-      font-size: 0.95em;
-    }
-    input[type="number"] {
-      width: 100px;
-      margin-left: 0.5em;
-    }
-    .buttons { margin-top: 0.5em; }
-    .buttons > button {
-      margin-right: 0.4em;
-      padding: 0.3em 0.6em;
-      cursor: pointer;
-    }
-    .countdown {
-      margin-top: 0.6em;
-      font-size: 1.05em;
-      color: #0a7;
-    }
-    .pct-controls {
-      margin-top: 2em;
-      padding: 1em;
-      background: #fff;
-      border: 1px solid #ddd;
-      border-radius: 4px;
-    }
-    .pct-controls label {
-      margin-right: 0.5em;
-    }
-    .pct-controls select,
-    .pct-controls input[type="number"] {
-      margin-right: 1em;
-    }
-    .pct-controls input[type="number"] {
-      width: 70px;
-    }
+    body { font-family: Arial, sans-serif; padding: 20px; line-height: 1.5; font-size: 18px; margin: 0; }
+    h2 { margin: 0 0 8px; }
+    .note { color:#555; margin-bottom: 12px; font-size: 14px; }
+    .row { display:flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 10px 0; }
+    label { font-size: 16px; }
+    input[type="text"], button, select { font-size: 16px; padding: 6px 8px; }
+    #seasonProgress { margin: 10px 0; }
+    #seasonTimes { margin: 8px 0 14px; }
+    #milestones { font-size: 16px; margin-bottom: 16px; }
+    .divider { height: 1px; background: #e4e4e4; margin: 18px 0; }
+    .inline { display: inline-flex; align-items: center; gap: 10px; }
   </style>
 </head>
 <body>
-  <h1 id="headingYear">Seconds Passed in the Current Year</h1>
-  <div class="description">
-    This page ignores Daylight Saving Time by default (uses local <strong>standard</strong> time).
-    If your region is in DST at New Year's or year-end (parts of Australia),
-    use the custom offset or the quick buttons below so the counter reaches exactly 100% at local midnight.
+  <h2>Calendar Year Tracker</h2>
+  <div id="tzNote" class="note"></div>
+
+  <!-- Offset settings -->
+  <div class="row">
+    <label for="utcOffset">Custom UTC offset (no DST):</label>
+    <input id="utcOffset" type="text" placeholder="Examples: 0, -5.5, +05:30">
+    <button id="applyBtn" type="button">Apply / Save</button>
+    <span id="offsetStatus" class="note"></span>
   </div>
 
-  <div class="seconds" id="secondsDisplay">Loading...</div>
+  <div class="divider"></div>
 
-  <!-- Countdown appears only when the last 0.01% window is reached -->
-  <div class="countdown info" id="countdown" style="display:none;">
-    Countdown to year end: <strong id="countdownTime">--:--:--</strong>
-  </div>
+  <!-- Output -->
+  <div id="seasonHeading"></div>
+  <div id="seasonProgress"></div>
+  <div id="seasonTimes" class="note"></div>
 
-  <div class="info" id="timezoneInfo">Detecting time zone...</div>
-  <div class="info" id="utcOffset">Loading UTC offset...</div>
-  <div class="info" id="currentTime">Loading current time...</div>
+  <!-- Seconds + countdown -->
+  <div id="secondsLine"></div>
+  <div id="countdown" style="font-size:18px; font-weight:bold; margin-bottom:12px;"></div>
 
-  <div class="input-box">
-    <label for="utcOffsetInput">Optional UTC Offset (-12 to +14, e.g. -4.5, 5.75):</label>
-    <input type="number" id="utcOffsetInput" min="-12" max="14" step="0.25" />
-    <div class="buttons">
-      <button id="useCurrentOffset">Use current local offset</button>
-      <button id="useEndOfYearOffset">Use Dec 31-Jan 1 midnight offset</button>
-      <button id="clearCustomOffset">Clear custom offset</button>
+  <div id="milestones"></div>
+  <div id="currentTime" class="note"></div>
+
+  <div class="divider"></div>
+
+  <!-- Bottom Display Options -->
+  <div id="displayOptions">
+    <h3>Display Options</h3>
+    <div class="row">
+      <label for="pctPlaces">Decimal places:</label>
+      <select id="pctPlaces" title="How many places after the decimal to show">
+        <option>0</option><option>1</option><option selected>2</option>
+        <option>3</option><option>4</option><option>5</option><option>6</option>
+      </select>
+
+      <span class="inline" role="group" aria-label="Rounding mode">
+        <label><input type="radio" name="pctMode" value="round" checked> Round</label>
+        <label><input type="radio" name="pctMode" value="truncate"> Truncate (floor)</label>
+      </span>
+
+      <span id="preview" class="note"></span>
     </div>
   </div>
 
-  <div class="pct-controls">
-    <strong>Percentage Formatting:</strong><br>
-    <label for="pctMethod">Method:</label>
-    <select id="pctMethod">
-      <option value="truncate">Truncate (floor)</option>
-      <option value="round">Round</option>
-    </select>
-    
-    <label for="pctDecimals">Decimal places:</label>
-    <input type="number" id="pctDecimals" min="0" max="10" value="2" />
-    
-    <button id="applyPctSettings">Apply</button>
-  </div>
+  <script>
+    (function () {
+      const { DateTime, FixedOffsetZone } = luxon;
+
+      function $(id){ return document.getElementById(id); }
+
+      // --- Utilities for fixed offset handling (no DST) ---
+      function minutesToSignedHHMM(mins){
+        const sign = mins < 0 ? "-" : "+";
+        const a = Math.abs(mins);
+        const hh = String(Math.floor(a/60)).padStart(2,"0");
+        const mm = String(a % 60).padStart(2,"0");
+        return sign + hh + ":" + mm;
+      }
+      function zonePrettyLabel(mins){
+        if (mins == null) return "UTC";
+        const a = Math.abs(mins), sign = mins < 0 ? "-" : "+";
+        const hh = Math.floor(a/60), mm = a % 60;
+        return mm === 0 ? `UTC${sign}${hh}` : `UTC${minutesToSignedHHMM(mins)}`;
+      }
+      function parseOffsetToMinutes(s){
+        if (!s) return null;
+        s = s.trim();
+        if (/^[+-]?\d+(\.\d+)?$/.test(s)) return Math.round(parseFloat(s)*60);
+        const m = s.match(/^([+-])(\d{1,2}):([0-5]\d)$/);
+        if (m){
+          const sign = m[1] === "-" ? -1 : 1;
+          const hh = parseInt(m[2],10), mm = parseInt(m[3],10);
+          return sign*(hh*60+mm);
+        }
+        return null;
+      }
+
+      // --- Storage keys ---
+      const LS = {
+        OFFSET: "yearTracker_offset",
+        PCT_PLACES: "yearTracker_pctPlaces",
+        PCT_MODE: "yearTracker_pctMode"
+      };
+
+      // --- Milestones ---
+      const milestones = [
+        { label: "10%", value: 0.10 },
+        { label: "20%", value: 0.20 },
+        { label: "25%", value: 0.25 },
+        { label: "30%", value: 0.30 },
+        { label: "⅓",  value: 1/3   },
+        { label: "40%", value: 0.40 },
+        { label: "50%", value: 0.50 },
+        { label: "60%", value: 0.60 },
+        { label: "⅔",  value: 2/3   },
+        { label: "70%", value: 0.70 },
+        { label: "75%", value: 0.75 },
+        { label: "80%", value: 0.80 },
+        { label: "90%", value: 0.90 }
+      ];
+
+      // --- Elements ---
+      const offsetInput = $("utcOffset");
+      const applyBtn = $("applyBtn");
+      const pctPlacesSel = $("pctPlaces");
+      const pctModeRadios = () => [...document.querySelectorAll('input[name="pctMode"]')];
+      const preview = $("preview");
+
+      const secondsLineEl = $("secondsLine");
+      const countdownEl = $("countdown");
+      const milestonesEl = $("milestones");
+      const seasonHeadingEl = $("seasonHeading");
+      const seasonProgressEl = $("seasonProgress");
+      const seasonTimesEl = $("seasonTimes");
+      const currentTimeEl = $("currentTime");
+
+      let cachedZone = FixedOffsetZone.utcInstance;
+      let cachedLabel = "UTC";
+      let cachedYearStartDT = null;
+      let cachedYearEndDT = null;
+      let cachedTotalSeconds = 0;
+
+      // --- Ensure default offset is user's offset on January 1 ---
+      function detectJan1OffsetMinutes() {
+        const nowLocal = DateTime.local();
+        const jan1Local = DateTime.local(
+          nowLocal.year, 1, 1, 0, 0, 0, 0
+        ); // local zone, whatever offset is in effect on Jan 1
+        return jan1Local.offset; // in minutes
+      }
+
+      function ensureDefaultOffset() {
+        const existing = localStorage.getItem(LS.OFFSET);
+        if (existing && existing.trim() !== "") return;
+
+        const mins = detectJan1OffsetMinutes();
+        const hhmm = minutesToSignedHHMM(mins);
+        localStorage.setItem(LS.OFFSET, hhmm);
+      }
+
+      // --- Load values from localStorage ---
+      function loadFromLocalStorage(){
+        const off = localStorage.getItem(LS.OFFSET) || "";
+        const places = localStorage.getItem(LS.PCT_PLACES);
+        const mode = localStorage.getItem(LS.PCT_MODE);
+
+        offsetInput.value = off;
+
+        if (places !== null) pctPlacesSel.value = String(places);
+        if (mode) {
+          const radio = pctModeRadios().find(r => r.value === mode);
+          if (radio) radio.checked = true;
+        }
+      }
+
+      // --- Zone helpers ---
+      function getUserFixedZone(){
+        const saved = localStorage.getItem(LS.OFFSET);
+        let mins = parseOffsetToMinutes(saved);
+
+        if (mins === null) {
+          // Fallback: detect Jan 1 offset again
+          mins = detectJan1OffsetMinutes();
+        }
+        return {
+          zone: FixedOffsetZone.instance(mins),
+          mins,
+          label: zonePrettyLabel(mins)
+        };
+      }
+
+      function setOffsetStatus(){
+        const info = getUserFixedZone();
+        cachedZone = info.zone;
+        cachedLabel = info.label;
+
+        $("offsetStatus").textContent =
+          `Currently showing all times in fixed ${cachedLabel}.`;
+        $("tzNote").textContent =
+          `By default, this tracker uses your local UTC offset on January 1 (standard or whatever is in effect there). ` +
+          `You can override it by entering any offset above.`;
+      }
+
+      // --- Percent formatting helpers ---
+      function formatPercent(pct, places, mode){
+        const val = Math.min(100, Math.max(0, pct));
+        const factor = 10 ** places;
+
+        let out;
+        if (mode === "truncate") {
+          out = Math.trunc(val * factor) / factor;
+        } else {
+          out = Math.round(val * factor) / factor;
+        }
+        return out.toFixed(places) + "%";
+      }
+
+      function nearHundredMessage(places){
+        const threshold = 100 - 1 / (10 ** places); // e.g., 99.99 when places=2
+        return `greater than ${threshold.toFixed(places)}% complete.`;
+      }
+
+      function getPercentPrefs() {
+        const places = parseInt(
+          localStorage.getItem(LS.PCT_PLACES) ?? pctPlacesSel.value,
+          10
+        ) || 0;
+        const mode = localStorage.getItem(LS.PCT_MODE)
+          || (pctModeRadios().find(r => r.checked) || {value:"round"}).value;
+        return { places, mode };
+      }
+
+      function updatePreview() {
+        const { places, mode } = getPercentPrefs();
+        const demoIn = 89.999;
+        preview.textContent = `Preview: ${demoIn}% → ${formatPercent(demoIn, places, mode)} (mode: ${mode}, places: ${places})`;
+      }
+
+      // --- Recompute static layout for the current calendar year ---
+      function recomputeStaticYear() {
+        const zInfo = getUserFixedZone();
+        cachedZone = zInfo.zone;
+        cachedLabel = zInfo.label;
+
+        const nowZ = DateTime.now().setZone(cachedZone);
+        const year = nowZ.year;
+
+        const yearStart = DateTime.fromObject(
+          { year, month: 1, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0 },
+          { zone: cachedZone }
+        );
+        const yearEnd = yearStart.plus({ years: 1 });
+
+        cachedYearStartDT = yearStart;
+        cachedYearEndDT = yearEnd;
+        cachedTotalSeconds = yearEnd.diff(yearStart).as("seconds");
+
+        seasonHeadingEl.innerHTML = `<strong>Calendar Year ${year}</strong>`;
+
+        const fmt = "EEE, MMM d, yyyy, HH:mm:ss";
+        seasonTimesEl.innerHTML =
+          `Year start: <strong>${yearStart.toFormat(fmt)} ${cachedLabel}</strong><br>` +
+          `Year end: <strong>${yearEnd.toFormat(fmt)} ${cachedLabel}</strong>`;
+
+        // Milestones for the year (NO "standard time, fixed" text here)
+        let html = `<h3>Milestone Dates for ${year} (${cachedLabel}):</h3><ul>`;
+        for (const m of milestones){
+          const dt = yearStart.plus({ seconds: cachedTotalSeconds * m.value });
+          html += `<li>${m.label} complete: <strong>${dt.toFormat(fmt)} ${cachedLabel}</strong></li>`;
+        }
+        html += `</ul>`;
+        milestonesEl.innerHTML = html;
+      }
+
+      // --- Countdown formatting ---
+      function formatCountdown(seconds) {
+        if (seconds < 0) seconds = 0;
+        const days = Math.floor(seconds / 86400);
+        const hrs = Math.floor((seconds % 86400) / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+        if (days >= 1) {
+          return `${days}d ${hrs.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
+        } else {
+          const totalHrs = Math.floor(seconds / 3600);
+          return `${totalHrs}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
+        }
+      }
+
+      // --- Per-second update ---
+      function tick() {
+        updatePreview();
+
+        if (!cachedYearStartDT || !cachedYearEndDT || cachedTotalSeconds <= 0) {
+          secondsLineEl.textContent = "";
+          countdownEl.textContent = "";
+          currentTimeEl.textContent = "";
+          seasonProgressEl.textContent = "Year boundaries not initialized.";
+          return;
+        }
+
+        const { places, mode } = getPercentPrefs();
+        let now = DateTime.now().setZone(cachedZone);
+
+        // If the calendar year rolled over while the page is open, recompute
+        if (now.year !== cachedYearStartDT.year) {
+          recomputeStaticYear();
+          now = DateTime.now().setZone(cachedZone);
+        }
+
+        const totalSeconds = cachedTotalSeconds;
+        const elapsedSeconds = now.diff(cachedYearStartDT).as("seconds");
+        const clampedElapsed = Math.max(0, Math.min(totalSeconds, elapsedSeconds));
+        const pct = Math.max(0, Math.min(100, (clampedElapsed / totalSeconds) * 100));
+
+        const nearThreshold = 100 - 1 / (10 ** places);
+        let progressText;
+        if (pct >= nearThreshold && pct < 100) {
+          progressText = `The year is ${nearHundredMessage(places)}`;
+        } else {
+          progressText = `The year is ${formatPercent(pct, places, mode)} complete.`;
+        }
+        seasonProgressEl.textContent = progressText;
+
+        // Seconds line
+        secondsLineEl.textContent =
+          `${Math.floor(clampedElapsed).toLocaleString()} seconds have passed out of ${Math.floor(totalSeconds).toLocaleString()} this year.`;
+
+        // Current time
+        const fmt = "EEE, MMM d, yyyy, HH:mm:ss";
+        currentTimeEl.textContent = `⏱ Current time: ${now.toFormat(fmt)} (${cachedLabel})`;
+
+        // Countdown to end of year
+        const remaining = cachedYearEndDT.diff(now, "seconds").seconds;
+        if (remaining <= 0) {
+          countdownEl.textContent = "⏳ Countdown: 00:00:00 (year ended)";
+        } else {
+          countdownEl.textContent = "⏳ Countdown to year end: " + formatCountdown(remaining);
+        }
+      }
+
+      // --- Event handlers ---
+      applyBtn.addEventListener("click", () => {
+        const val = offsetInput.value.trim();
+        const mins = parseOffsetToMinutes(val);
+        if (val !== "" && mins === null) {
+          alert("Please enter a valid UTC offset (e.g., 0, 1, -5.5, +05:30), or leave blank to use your Jan 1 offset.");
+          return;
+        }
+        // Save the raw string (we'll parse it later)
+        localStorage.setItem(LS.OFFSET, val);
+        setOffsetStatus();
+        recomputeStaticYear();
+        tick();
+      });
+
+      pctPlacesSel.addEventListener("change", () => {
+        localStorage.setItem(
+          LS.PCT_PLACES,
+          String(parseInt(pctPlacesSel.value,10)||0)
+        );
+        updatePreview();
+        tick();
+      });
+
+      pctModeRadios().forEach(r => r.addEventListener("change", () => {
+        localStorage.setItem(LS.PCT_MODE, r.value);
+        updatePreview();
+        tick();
+      }));
+
+      // --- Init ---
+      ensureDefaultOffset();
+      loadFromLocalStorage();
+      setOffsetStatus();
+      recomputeStaticYear();
+      updatePreview();
+      tick();
+
+      setInterval(tick, 1000);
+    })();
+  </script>
 </body>
 </html>
