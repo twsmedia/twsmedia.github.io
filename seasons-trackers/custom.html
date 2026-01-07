@@ -25,7 +25,7 @@
     .delete-preset:hover { background: #d32f2f; }
     input[type="text"].preset-name { width: 200px; }
 
-    /* NEW: small helper style */
+    /* small helper style */
     .inline { display: inline-flex; align-items: center; gap: 10px; }
   </style>
 </head>
@@ -51,11 +51,11 @@
   </div>
 
   <div class="row">
-  <label for="startDT">Start:</label>
-  <input id="startDT" type="datetime-local" step="1" />
-  <label for="endDT">End:</label>
-  <input id="endDT" type="datetime-local" step="1" />
-</div>
+    <label for="startDT">Start:</label>
+    <input id="startDT" type="datetime-local" step="1" />
+    <label for="endDT">End:</label>
+    <input id="endDT" type="datetime-local" step="1" />
+  </div>
 
   <div class="row">
     <label for="utcOffset">Custom UTC offset (no DST):</label>
@@ -71,7 +71,7 @@
   <div id="seasonProgress"></div>
   <div id="seasonTimes" class="note"></div>
 
-  <!-- New: seconds + countdown directly under the seconds line -->
+  <!-- Seconds + countdown -->
   <div id="secondsLine"></div>
   <div id="countdown" style="font-size:18px; font-weight:bold; margin-bottom:12px;"></div>
 
@@ -80,7 +80,7 @@
 
   <div class="divider"></div>
 
-  <!-- NEW: Bottom Display Options -->
+  <!-- Display Options -->
   <div id="displayOptions">
     <h3>Display Options</h3>
     <div class="row">
@@ -93,462 +93,450 @@
         <label><input type="radio" name="pctMode" value="round" checked> Round</label>
         <label><input type="radio" name="pctMode" value="truncate"> Truncate (floor)</label>
       </span>
-
-      
     </div>
   </div>
 
- <script>
-  (function () {
-    const { DateTime, FixedOffsetZone } = luxon;
+  <script>
+    (function () {
+      const { DateTime, FixedOffsetZone } = luxon;
 
-    function $(id){ return document.getElementById(id); }
+      function $(id){ return document.getElementById(id); }
 
-    // --- Utilities for fixed offset handling (no DST) ---
-    function minutesToSignedHHMM(mins){
-      const sign = mins < 0 ? "-" : "+";
-      const a = Math.abs(mins);
-      const hh = String(Math.floor(a/60)).padStart(2,"0");
-      const mm = String(a % 60).padStart(2,"0");
-      return sign + hh + ":" + mm;
-    }
-    function zonePrettyLabel(mins){
-      if (mins == null) return "UTC";
-      const a = Math.abs(mins), sign = mins < 0 ? "-" : "+";
-      const hh = Math.floor(a/60), mm = a % 60;
-      return mm === 0 ? `UTC${sign}${hh}` : `UTC${minutesToSignedHHMM(mins)}`;
-    }
-    function parseOffsetToMinutes(s){
-      if (!s) return null;
-      s = s.trim();
-      if (/^[+-]?\d+(\.\d+)?$/.test(s)) return Math.round(parseFloat(s)*60);
-      const m = s.match(/^([+-])(\d{1,2}):([0-5]\d)$/);
-      if (m){
-        const sign = m[1] === "-" ? -1 : 1;
-        const hh = parseInt(m[2],10), mm = parseInt(m[3],10);
-        return sign*(hh*60+mm);
+      // --- Utilities for fixed offset handling (no DST) ---
+      function minutesToSignedHHMM(mins){
+        const sign = mins < 0 ? "-" : "+";
+        const a = Math.abs(mins);
+        const hh = String(Math.floor(a/60)).padStart(2,"0");
+        const mm = String(a % 60).padStart(2,"0");
+        return sign + hh + ":" + mm;
       }
-      return null;
-    }
-
-    // --- Storage keys ---
-    const LS = {
-      NAME: "customSeason_name",
-      START: "customSeason_start",
-      END: "customSeason_end",
-      OFFSET: "customSeason_offset",
-      PRESETS: "customSeason_presets",
-      // Bottom display options
-      PCT_PLACES: "customSeason_pctPlaces",
-      PCT_MODE: "customSeason_pctMode"
-    };
-
-    // --- Preset management ---
-    function getPresets() {
-      const saved = localStorage.getItem(LS.PRESETS);
-      return saved ? JSON.parse(saved) : {};
-    }
-
-    function savePresets(presets) {
-      localStorage.setItem(LS.PRESETS, JSON.stringify(presets));
-    }
-
-    function saveCurrentAsPreset(name) {
-      if (!name.trim()) {
-        alert("Please enter a name for the preset.");
-        return;
+      function zonePrettyLabel(mins){
+        if (mins == null) return "UTC";
+        const a = Math.abs(mins), sign = mins < 0 ? "-" : "+";
+        const hh = Math.floor(a/60), mm = a % 60;
+        return mm === 0 ? `UTC${sign}${hh}` : `UTC${minutesToSignedHHMM(mins)}`;
+      }
+      function parseOffsetToMinutes(s){
+        if (!s) return null;
+        s = s.trim();
+        if (/^[+-]?\d+(\.\d+)?$/.test(s)) return Math.round(parseFloat(s)*60);
+        const m = s.match(/^([+-])(\d{1,2}):([0-5]\d)$/);
+        if (m){
+          const sign = m[1] === "-" ? -1 : 1;
+          const hh = parseInt(m[2],10), mm = parseInt(m[3],10);
+          return sign*(hh*60+mm);
+        }
+        return null;
       }
 
-      const presets = getPresets();
-      presets[name] = {
-        name: nameInput.value.trim(),
-        start: startInput.value,
-        end: endInput.value,
-        offset: offsetInput.value.trim()
+      // --- Storage keys ---
+      const LS = {
+        NAME: "customSeason_name",
+        START: "customSeason_start",
+        END: "customSeason_end",
+        OFFSET: "customSeason_offset",
+        PRESETS: "customSeason_presets",
+        // Bottom display options
+        PCT_PLACES: "customSeason_pctPlaces",
+        PCT_MODE: "customSeason_pctMode"
       };
 
-      savePresets(presets);
-      renderPresetButtons();
-      $("presetName").value = "";
-    }
-
-    function loadPreset(presetName) {
-      const presets = getPresets();
-      const preset = presets[presetName];
-      if (!preset) return;
-
-      nameInput.value = preset.name || "";
-      startInput.value = preset.start || "";
-      endInput.value = preset.end || "";
-      offsetInput.value = preset.offset || "";
-
-      // Also apply the settings
-      applySettings();
-    }
-
-    function deletePreset(presetName) {
-      if (!confirm(`Delete preset "${presetName}"?`)) return;
-
-      const presets = getPresets();
-      delete presets[presetName];
-      savePresets(presets);
-      renderPresetButtons();
-    }
-
-    function renderPresetButtons() {
-      const container = $("presetButtons");
-      const presets = getPresets();
-
-      container.innerHTML = "";
-
-      if (Object.keys(presets).length === 0) {
-        container.innerHTML = '<div class="note">No saved presets yet. Save your first preset below!</div>';
-        return;
+      // --- Preset management ---
+      function getPresets() {
+        const saved = localStorage.getItem(LS.PRESETS);
+        return saved ? JSON.parse(saved) : {};
       }
-
-      for (const [name, preset] of Object.entries(presets)) {
-        const btn = document.createElement("button");
-        btn.className = "preset-btn";
-        btn.textContent = name;
-        btn.onclick = () => loadPreset(name);
-        container.appendChild(btn);
-
-        const deleteBtn = document.createElement("button");
-        deleteBtn.className = "preset-btn delete-preset";
-        deleteBtn.textContent = "×";
-        deleteBtn.title = `Delete "${name}"`;
-        deleteBtn.onclick = (e) => {
-          e.stopPropagation();
-          deletePreset(name);
+      function savePresets(presets) {
+        localStorage.setItem(LS.PRESETS, JSON.stringify(presets));
+      }
+      function saveCurrentAsPreset(name) {
+        if (!name.trim()) {
+          alert("Please enter a name for the preset.");
+          return;
+        }
+        const presets = getPresets();
+        presets[name] = {
+          name: nameInput.value.trim(),
+          start: startInput.value,
+          end: endInput.value,
+          offset: offsetInput.value.trim()
         };
-        container.appendChild(deleteBtn);
+        savePresets(presets);
+        renderPresetButtons();
+        $("presetName").value = "";
       }
-    }
+      function loadPreset(presetName) {
+        const presets = getPresets();
+        const preset = presets[presetName];
+        if (!preset) return;
 
-    // --- Milestones ---
-    const milestones = [
-      { label: "10%", value: 0.10 },
-      { label: "20%", value: 0.20 },
-      { label: "25%", value: 0.25 },
-      { label: "30%", value: 0.30 },
-      { label: "⅓",  value: 1/3   },
-      { label: "40%", value: 0.40 },
-      { label: "50%", value: 0.50 },
-      { label: "60%", value: 0.60 },
-      { label: "⅔",  value: 2/3   },
-      { label: "70%", value: 0.70 },
-      { label: "75%", value: 0.75 },
-      { label: "80%", value: 0.80 },
-      { label: "90%", value: 0.90 }
-    ];
+        nameInput.value = preset.name || "";
+        startInput.value = preset.start || "";
+        endInput.value = preset.end || "";
+        offsetInput.value = preset.offset || "";
 
-    // --- Elements ---
-    const nameInput = $("seasonName");
-    const startInput = $("startDT");
-    const endInput = $("endDT");
-    const offsetInput = $("utcOffset");
-    const applyBtn = $("applyBtn");
-    const presetNameInput = $("presetName");
-    const savePresetBtn = $("savePresetBtn");
-
-    // Bottom controls
-    const pctPlacesSel = $("pctPlaces");
-    const pctModeRadios = () => [...document.querySelectorAll('input[name="pctMode"]')];
-    
-
-    // Dynamic display elements
-    const secondsLineEl = $("secondsLine");
-    const countdownEl = $("countdown");
-    const milestonesEl = $("milestones");
-    const seasonHeadingEl = $("seasonHeading");
-    const seasonProgressEl = $("seasonProgress");
-    const seasonTimesEl = $("seasonTimes");
-    const currentTimeEl = $("currentTime");
-
-    // Cached static state
-    let cachedZone = FixedOffsetZone.utcInstance;
-    let cachedLabel = "UTC";
-    let cachedStartDT = null;
-    let cachedEndDT = null;
-    let cachedTotalSeconds = 0;
-
-    // --- Load values from localStorage ---
-    function loadFromLocalStorage(){
-      const name = localStorage.getItem(LS.NAME) || "";
-      const startV = localStorage.getItem(LS.START) || "";
-      const endV = localStorage.getItem(LS.END) || "";
-      const off = localStorage.getItem(LS.OFFSET) || "";
-
-      const places = localStorage.getItem(LS.PCT_PLACES);
-      const mode = localStorage.getItem(LS.PCT_MODE);
-
-      nameInput.value = name;
-      startInput.value = startV;
-      endInput.value = endV;
-      offsetInput.value = off;
-
-      if (places !== null) pctPlacesSel.value = String(places);
-      if (mode) {
-        const radio = pctModeRadios().find(r => r.value === mode);
-        if (radio) radio.checked = true;
+        applySettings();
       }
-    }
-
-    // --- Zone helpers ---
-    function getUserFixedZone(){
-      const saved = localStorage.getItem(LS.OFFSET);
-      const mins = parseOffsetToMinutes(saved);
-      if (mins === null) return { zone: FixedOffsetZone.utcInstance, mins: 0, label: "UTC" };
-      return { zone: FixedOffsetZone.instance(mins), mins, label: zonePrettyLabel(mins) };
-    }
-    function setOffsetStatus(){
-      const saved = localStorage.getItem(LS.OFFSET);
-      const mins = parseOffsetToMinutes(saved);
-      $("offsetStatus").textContent = mins === null
-        ? " (Times show in UTC by default; enter an offset to change.)"
-        : " (" + zonePrettyLabel(mins) + ")";
-    }
-
-    // --- Parse datetime-local input into Luxon DT in the chosen fixed zone ---
-    function parseLocalInputToZoneDT(value, zone){
-      if (!value) return null;
-      const m = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
-      if (!m) return null;
-      const [ , Y, Mo, D, H, Mi, S ] = m;
-      return DateTime.fromObject(
-        {
-          year: +Y, month: +Mo, day: +D,
-          hour: +H, minute: +Mi, second: S ? +S : 0, millisecond: 0
-        },
-        { zone }
-      );
-    }
-
-    // --- Percent formatter (round vs truncate) ---
-    function formatPercent(pct, places, mode){
-      const val = Math.min(100, Math.max(0, pct));
-      const factor = 10 ** places;
-
-      let out;
-      if (mode === "truncate") {
-        out = Math.trunc(val * factor) / factor;
-      } else {
-        out = Math.round(val * factor) / factor;
+      function deletePreset(presetName) {
+        if (!confirm(`Delete preset "${presetName}"?`)) return;
+        const presets = getPresets();
+        delete presets[presetName];
+        savePresets(presets);
+        renderPresetButtons();
       }
-      return out.toFixed(places) + "%";
-    }
+      function renderPresetButtons() {
+        const container = $("presetButtons");
+        const presets = getPresets();
 
-    // --- NEW: Round-mode near-100% handling to avoid displaying 100% early ---
-    function nearHundredThreshold(places){
-      // If rounding to "places" decimals, this is the point where rounding would become 100.0...
-      // Example: places=0 => 99.5, places=2 => 99.995
-      return 100 - 0.5 * Math.pow(10, -places);
-    }
-    function nearHundredMessage(places){
-      const t = nearHundredThreshold(places);
-      // Always show ONE extra decimal place vs selected places (even when places=0)
-      return `greater than ${t.toFixed(places + 1)}% complete.`;
-    }
+        container.innerHTML = "";
 
-    // Helper: get current percent display settings
-    function getPercentPrefs() {
-      const places = parseInt(localStorage.getItem(LS.PCT_PLACES) ?? pctPlacesSel.value, 10) || 0;
-      const mode = localStorage.getItem(LS.PCT_MODE) || (pctModeRadios().find(r => r.checked) || {value:"round"}).value;
-      return { places, mode };
-    }
+        if (Object.keys(presets).length === 0) {
+          container.innerHTML = '<div class="note">No saved presets yet. Save your first preset below!</div>';
+          return;
+        }
 
-    
+        for (const [name, preset] of Object.entries(presets)) {
+          const btn = document.createElement("button");
+          btn.className = "preset-btn";
+          btn.textContent = name;
+          btn.onclick = () => loadPreset(name);
+          container.appendChild(btn);
 
-    // --- Recompute static layout (no per-second stuff here) ---
-    function recomputeStatic() {
-      const zInfo = getUserFixedZone();
-      cachedZone = zInfo.zone;
-      cachedLabel = zInfo.label;
-
-      $("tzNote").textContent = `This tracker uses a fixed offset: ${cachedLabel} (ignores DST).`;
-
-      const nm = nameInput.value.trim();
-      const headingName = nm ? nm : "Custom Season";
-      seasonHeadingEl.innerHTML = `<strong>${headingName}</strong>`;
-
-      const startDT = parseLocalInputToZoneDT(startInput.value, cachedZone);
-      const endDT   = parseLocalInputToZoneDT(endInput.value, cachedZone);
-
-      cachedStartDT = null;
-      cachedEndDT = null;
-      cachedTotalSeconds = 0;
-
-      const fmt = "EEE, MMM d, yyyy, HH:mm:ss";
-
-      if (!startDT || !endDT){
-        seasonTimesEl.textContent = "";
-        milestonesEl.innerHTML = "";
-        secondsLineEl.textContent = "";
-        countdownEl.textContent = "";
-        currentTimeEl.textContent = "";
-        seasonProgressEl.textContent = "Enter a valid start and end date-time, then press Apply / Save.";
-        return;
+          const deleteBtn = document.createElement("button");
+          deleteBtn.className = "preset-btn delete-preset";
+          deleteBtn.textContent = "×";
+          deleteBtn.title = `Delete "${name}"`;
+          deleteBtn.onclick = (e) => {
+            e.stopPropagation();
+            deletePreset(name);
+          };
+          container.appendChild(deleteBtn);
+        }
       }
 
-      if (endDT <= startDT){
-        seasonTimesEl.textContent = "";
-        milestonesEl.innerHTML = "";
-        secondsLineEl.textContent = "";
-        countdownEl.textContent = "";
-        currentTimeEl.textContent = "";
-        seasonProgressEl.textContent = "End must be after Start.";
-        return;
+      // --- Milestones ---
+      const milestones = [
+        { label: "10%", value: 0.10 },
+        { label: "20%", value: 0.20 },
+        { label: "25%", value: 0.25 },
+        { label: "30%", value: 0.30 },
+        { label: "⅓",  value: 1/3   },
+        { label: "40%", value: 0.40 },
+        { label: "50%", value: 0.50 },
+        { label: "60%", value: 0.60 },
+        { label: "⅔",  value: 2/3   },
+        { label: "70%", value: 0.70 },
+        { label: "75%", value: 0.75 },
+        { label: "80%", value: 0.80 },
+        { label: "90%", value: 0.90 }
+      ];
+
+      // --- Elements ---
+      const nameInput = $("seasonName");
+      const startInput = $("startDT");
+      const endInput = $("endDT");
+      const offsetInput = $("utcOffset");
+      const applyBtn = $("applyBtn");
+      const presetNameInput = $("presetName");
+      const savePresetBtn = $("savePresetBtn");
+
+      // Bottom controls
+      const pctPlacesSel = $("pctPlaces");
+      const pctModeRadios = () => [...document.querySelectorAll('input[name="pctMode"]')];
+
+      // Dynamic display elements
+      const secondsLineEl = $("secondsLine");
+      const countdownEl = $("countdown");
+      const milestonesEl = $("milestones");
+      const seasonHeadingEl = $("seasonHeading");
+      const seasonProgressEl = $("seasonProgress");
+      const seasonTimesEl = $("seasonTimes");
+      const currentTimeEl = $("currentTime");
+
+      // Cached static state
+      let cachedZone = FixedOffsetZone.utcInstance;
+      let cachedLabel = "UTC";
+      let cachedStartDT = null;
+      let cachedEndDT = null;
+
+      // BEST FIX: use integer seconds derived from millisecond endpoints
+      let cachedStartMs = 0;
+      let cachedEndMs = 0;
+      let cachedTotalSecondsInt = 0;
+
+      // --- Load values from localStorage ---
+      function loadFromLocalStorage(){
+        const name = localStorage.getItem(LS.NAME) || "";
+        const startV = localStorage.getItem(LS.START) || "";
+        const endV = localStorage.getItem(LS.END) || "";
+        const off = localStorage.getItem(LS.OFFSET) || "";
+
+        const places = localStorage.getItem(LS.PCT_PLACES);
+        const mode = localStorage.getItem(LS.PCT_MODE);
+
+        nameInput.value = name;
+        startInput.value = startV;
+        endInput.value = endV;
+        offsetInput.value = off;
+
+        if (places !== null) pctPlacesSel.value = String(places);
+        if (mode) {
+          const radio = pctModeRadios().find(r => r.value === mode);
+          if (radio) radio.checked = true;
+        }
       }
 
-      cachedStartDT = startDT;
-      cachedEndDT = endDT;
-      cachedTotalSeconds = endDT.diff(startDT).as("seconds");
-
-      seasonTimesEl.innerHTML =
-        `Start: <strong>${startDT.toFormat(fmt)} ${cachedLabel}</strong><br>` +
-        `End: <strong>${endDT.toFormat(fmt)} ${cachedLabel}</strong>`;
-
-      let html = `<h3>Milestone Dates (${cachedLabel}):</h3><ul>`;
-      for (const m of milestones){
-        const dt = startDT.plus({ seconds: cachedTotalSeconds * m.value });
-        html += `<li>${m.label} complete: <strong>${dt.toFormat(fmt)} ${cachedLabel}</strong></li>`;
+      // --- Zone helpers ---
+      function getUserFixedZone(){
+        const saved = localStorage.getItem(LS.OFFSET);
+        const mins = parseOffsetToMinutes(saved);
+        if (mins === null) return { zone: FixedOffsetZone.utcInstance, mins: 0, label: "UTC" };
+        return { zone: FixedOffsetZone.instance(mins), mins, label: zonePrettyLabel(mins) };
       }
-      html += `</ul>`;
-      milestonesEl.innerHTML = html;
-    }
-
-    // --- Apply settings (save to localStorage and recompute static) ---
-    function applySettings() {
-      const val = offsetInput.value.trim();
-      const mins = parseOffsetToMinutes(val);
-      if (val !== "" && mins === null) {
-        alert("Please enter a valid UTC offset (e.g., 0, 1, -5.5, +05:30), or leave blank for UTC.");
-        return;
+      function setOffsetStatus(){
+        const saved = localStorage.getItem(LS.OFFSET);
+        const mins = parseOffsetToMinutes(saved);
+        $("offsetStatus").textContent = mins === null
+          ? " (Times show in UTC by default; enter an offset to change.)"
+          : " (" + zonePrettyLabel(mins) + ")";
       }
 
-      localStorage.setItem(LS.NAME, nameInput.value.trim());
-      localStorage.setItem(LS.START, startInput.value);
-      localStorage.setItem(LS.END, endInput.value);
-      localStorage.setItem(LS.OFFSET, val);
-
-      const { places, mode } = getPercentPrefs();
-      localStorage.setItem(LS.PCT_PLACES, String(places));
-      localStorage.setItem(LS.PCT_MODE, mode);
-
-      setOffsetStatus();
-      recomputeStatic();
-      
-      tick();
-    }
-
-    // --- Dynamic per-second update (NO heavy DOM rebuilding) ---
-    function formatCountdown(seconds) {
-      if (seconds < 0) seconds = 0;
-      const days = Math.floor(seconds / 86400);
-      const hrs = Math.floor((seconds % 86400) / 3600);
-      const mins = Math.floor((seconds % 3600) / 60);
-      const secs = Math.floor(seconds % 60);
-      if (days >= 1) {
-        return `${days}d ${hrs.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
-      } else {
-        const totalHrs = Math.floor(seconds / 3600);
-        return `${totalHrs}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
-      }
-    }
-
-    function tick() {
-      if (!cachedStartDT || !cachedEndDT || cachedTotalSeconds <= 0) {
-        secondsLineEl.textContent = "";
-        countdownEl.textContent = "";
-        currentTimeEl.textContent = "";
-        return;
+      // --- Parse datetime-local input into Luxon DT in the chosen fixed zone ---
+      function parseLocalInputToZoneDT(value, zone){
+        if (!value) return null;
+        const m = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/);
+        if (!m) return null;
+        const [ , Y, Mo, D, H, Mi, S ] = m;
+        return DateTime.fromObject(
+          {
+            year: +Y, month: +Mo, day: +D,
+            hour: +H, minute: +Mi, second: S ? +S : 0, millisecond: 0
+          },
+          { zone }
+        );
       }
 
-      const { places, mode } = getPercentPrefs();
-      const now = DateTime.now().setZone(cachedZone);
+      // --- Percent formatter (round vs truncate) ---
+      function formatPercent(pct, places, mode){
+        const val = Math.min(100, Math.max(0, pct));
+        const factor = 10 ** places;
 
-      const totalSeconds = cachedTotalSeconds;
-      const elapsedSeconds = now.diff(cachedStartDT).as("seconds");
-      const clampedElapsed = Math.max(0, Math.min(totalSeconds, elapsedSeconds));
-      const pct = Math.max(0, Math.min(100, (clampedElapsed/totalSeconds)*100));
+        let out;
+        if (mode === "truncate") {
+          out = Math.trunc(val * factor) / factor;
+        } else {
+          out = Math.round(val * factor) / factor;
+        }
+        return out.toFixed(places) + "%";
+      }
 
-      let progressText = "";
-      if (now < cachedStartDT){
-        progressText = "This season hasn't started yet.";
-      } else if (now >= cachedEndDT){
-        // Once ended, it's truly 100%
-        progressText = `This season has ended (${formatPercent(100, places, mode)} complete).`;
-      } else {
-        // Season running
-        if (mode === "round") {
-          const threshold = nearHundredThreshold(places);
-          if (pct >= threshold && pct < 100) {
-            // Avoid showing 100% while time remains
-            progressText = `This season is ${nearHundredMessage(places)}`;
+      // --- Round-mode near-100% handling to avoid displaying 100% early ---
+      function nearHundredThreshold(places){
+        return 100 - 0.5 * Math.pow(10, -places);
+      }
+      function nearHundredMessage(places){
+        const t = nearHundredThreshold(places);
+        return `greater than ${t.toFixed(places + 1)}% complete.`;
+      }
+
+      // Helper: get current percent display settings
+      function getPercentPrefs() {
+        const places = parseInt(localStorage.getItem(LS.PCT_PLACES) ?? pctPlacesSel.value, 10) || 0;
+        const mode = localStorage.getItem(LS.PCT_MODE) || (pctModeRadios().find(r => r.checked) || {value:"round"}).value;
+        return { places, mode };
+      }
+
+      // --- Recompute static layout (no per-second stuff here) ---
+      function recomputeStatic() {
+        const zInfo = getUserFixedZone();
+        cachedZone = zInfo.zone;
+        cachedLabel = zInfo.label;
+
+        $("tzNote").textContent = `This tracker uses a fixed offset: ${cachedLabel} (ignores DST).`;
+
+        const nm = nameInput.value.trim();
+        const headingName = nm ? nm : "Custom Season";
+        seasonHeadingEl.innerHTML = `<strong>${headingName}</strong>`;
+
+        const startDT = parseLocalInputToZoneDT(startInput.value, cachedZone);
+        const endDT   = parseLocalInputToZoneDT(endInput.value, cachedZone);
+
+        cachedStartDT = null;
+        cachedEndDT = null;
+        cachedStartMs = 0;
+        cachedEndMs = 0;
+        cachedTotalSecondsInt = 0;
+
+        const fmt = "EEE, MMM d, yyyy, HH:mm:ss";
+
+        if (!startDT || !endDT){
+          seasonTimesEl.textContent = "";
+          milestonesEl.innerHTML = "";
+          secondsLineEl.textContent = "";
+          countdownEl.textContent = "";
+          currentTimeEl.textContent = "";
+          seasonProgressEl.textContent = "Enter a valid start and end date-time, then press Apply / Save.";
+          return;
+        }
+
+        if (endDT <= startDT){
+          seasonTimesEl.textContent = "";
+          milestonesEl.innerHTML = "";
+          secondsLineEl.textContent = "";
+          countdownEl.textContent = "";
+          currentTimeEl.textContent = "";
+          seasonProgressEl.textContent = "End must be after Start.";
+          return;
+        }
+
+        cachedStartDT = startDT;
+        cachedEndDT = endDT;
+
+        // BEST FIX: derive totals from millisecond endpoints, keep integer seconds
+        cachedStartMs = cachedStartDT.toMillis();
+        cachedEndMs = cachedEndDT.toMillis();
+        cachedTotalSecondsInt = Math.round((cachedEndMs - cachedStartMs) / 1000);
+
+        seasonTimesEl.innerHTML =
+          `Start: <strong>${startDT.toFormat(fmt)} ${cachedLabel}</strong><br>` +
+          `End: <strong>${endDT.toFormat(fmt)} ${cachedLabel}</strong>`;
+
+        let html = `<h3>Milestone Dates (${cachedLabel}):</h3><ul>`;
+        for (const m of milestones){
+          const dt = startDT.plus({ seconds: cachedTotalSecondsInt * m.value });
+          html += `<li>${m.label} complete: <strong>${dt.toFormat(fmt)} ${cachedLabel}</strong></li>`;
+        }
+        html += `</ul>`;
+        milestonesEl.innerHTML = html;
+      }
+
+      // --- Apply settings (save to localStorage and recompute static) ---
+      function applySettings() {
+        const val = offsetInput.value.trim();
+        const mins = parseOffsetToMinutes(val);
+        if (val !== "" && mins === null) {
+          alert("Please enter a valid UTC offset (e.g., 0, 1, -5.5, +05:30), or leave blank for UTC.");
+          return;
+        }
+
+        localStorage.setItem(LS.NAME, nameInput.value.trim());
+        localStorage.setItem(LS.START, startInput.value);
+        localStorage.setItem(LS.END, endInput.value);
+        localStorage.setItem(LS.OFFSET, val);
+
+        const { places, mode } = getPercentPrefs();
+        localStorage.setItem(LS.PCT_PLACES, String(places));
+        localStorage.setItem(LS.PCT_MODE, mode);
+
+        setOffsetStatus();
+        recomputeStatic();
+        tick();
+      }
+
+      // --- Dynamic per-second update ---
+      function formatCountdown(seconds) {
+        if (seconds < 0) seconds = 0;
+        const days = Math.floor(seconds / 86400);
+        const hrs = Math.floor((seconds % 86400) / 3600);
+        const mins = Math.floor((seconds % 3600) / 60);
+        const secs = Math.floor(seconds % 60);
+        if (days >= 1) {
+          return `${days}d ${hrs.toString().padStart(2,'0')}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
+        } else {
+          const totalHrs = Math.floor(seconds / 3600);
+          return `${totalHrs}:${mins.toString().padStart(2,'0')}:${secs.toString().padStart(2,'0')}`;
+        }
+      }
+
+      function tick() {
+        if (!cachedStartDT || !cachedEndDT || cachedTotalSecondsInt <= 0) {
+          secondsLineEl.textContent = "";
+          countdownEl.textContent = "";
+          currentTimeEl.textContent = "";
+          return;
+        }
+
+        const { places, mode } = getPercentPrefs();
+
+        const now = DateTime.now().setZone(cachedZone);
+        const nowMs = now.toMillis();
+
+        // BEST FIX: derive BOTH elapsed and remaining from the same integer-second clock
+        const elapsedInt = Math.floor((nowMs - cachedStartMs) / 1000);
+        const clampedElapsedInt = Math.max(0, Math.min(cachedTotalSecondsInt, elapsedInt));
+        const remainingInt = Math.max(0, cachedTotalSecondsInt - clampedElapsedInt);
+
+        const pct = Math.max(0, Math.min(100, (clampedElapsedInt / cachedTotalSecondsInt) * 100));
+
+        let progressText = "";
+        if (nowMs < cachedStartMs){
+          progressText = "This season hasn't started yet.";
+        } else if (nowMs >= cachedEndMs){
+          progressText = `This season has ended (${formatPercent(100, places, mode)} complete).`;
+        } else {
+          if (mode === "round") {
+            const threshold = nearHundredThreshold(places);
+            if (pct >= threshold && pct < 100) {
+              progressText = `This season is ${nearHundredMessage(places)}`;
+            } else {
+              progressText = `This season is ${formatPercent(pct, places, mode)} complete.`;
+            }
           } else {
             progressText = `This season is ${formatPercent(pct, places, mode)} complete.`;
           }
+        }
+        seasonProgressEl.textContent = progressText;
+
+        // Seconds line (locked to countdown)
+        secondsLineEl.textContent =
+          `${clampedElapsedInt.toLocaleString()} seconds have passed out of ${cachedTotalSecondsInt.toLocaleString()}.`;
+
+        // Current time
+        const fmt = "EEE, MMM d, yyyy, HH:mm:ss";
+        currentTimeEl.textContent = `⏱ Current time: ${now.toFormat(fmt)} (${cachedLabel})`;
+
+        // Countdown (locked to seconds line)
+        if (nowMs >= cachedEndMs) {
+          countdownEl.textContent = "⏳ Countdown: 00:00:00 (season ended)";
         } else {
-          // Truncate mode unchanged
-          progressText = `This season is ${formatPercent(pct, places, mode)} complete.`;
+          countdownEl.textContent = "⏳ Countdown: " + formatCountdown(remainingInt);
         }
       }
-      seasonProgressEl.textContent = progressText;
 
-      // Seconds line
-      secondsLineEl.textContent =
-        `${Math.floor(clampedElapsed).toLocaleString()} seconds have passed out of ${Math.floor(totalSeconds).toLocaleString()}.`;
+      // --- Event handlers ---
+      applyBtn.addEventListener("click", applySettings);
 
-      // Current time
-      const fmt = "EEE, MMM d, yyyy, HH:mm:ss";
-      currentTimeEl.textContent = `⏱ Current time: ${now.toFormat(fmt)} (${cachedLabel})`;
-
-      // Countdown
-      const remaining = cachedEndDT.diff(now, "seconds").seconds;
-      if (remaining <= 0) {
-        countdownEl.textContent = "⏳ Countdown: 00:00:00 (season ended)";
-      } else {
-        countdownEl.textContent = "⏳ Countdown: " + formatCountdown(remaining);
-      }
-    }
-
-    // --- Event handlers ---
-    applyBtn.addEventListener("click", applySettings);
-
-    savePresetBtn.addEventListener("click", () => {
-      saveCurrentAsPreset(presetNameInput.value.trim());
-    });
-
-    presetNameInput.addEventListener("keypress", (e) => {
-      if (e.key === "Enter") {
+      savePresetBtn.addEventListener("click", () => {
         saveCurrentAsPreset(presetNameInput.value.trim());
-      }
-    });
+      });
 
-    $("pctPlaces").addEventListener("change", () => {
-      localStorage.setItem(LS.PCT_PLACES, String(parseInt(pctPlacesSel.value,10)||0));
-      
+      presetNameInput.addEventListener("keypress", (e) => {
+        if (e.key === "Enter") {
+          saveCurrentAsPreset(presetNameInput.value.trim());
+        }
+      });
+
+      $("pctPlaces").addEventListener("change", () => {
+        localStorage.setItem(LS.PCT_PLACES, String(parseInt(pctPlacesSel.value,10)||0));
+        tick();
+      });
+
+      pctModeRadios().forEach(r => r.addEventListener("change", () => {
+        localStorage.setItem(LS.PCT_MODE, r.value);
+        tick();
+      }));
+
+      // --- Init ---
+      loadFromLocalStorage();
+      setOffsetStatus();
+      renderPresetButtons();
+      recomputeStatic();
       tick();
-    });
-    pctModeRadios().forEach(r => r.addEventListener("change", () => {
-      localStorage.setItem(LS.PCT_MODE, r.value);
-      
-      tick();
-    }));
 
-    // --- Init ---
-    loadFromLocalStorage();
-    setOffsetStatus();
-    renderPresetButtons();
-    recomputeStatic();
-    
-    tick();
+      // You can keep 100ms; the displayed integers are stable and consistent.
+      setInterval(tick, 100);
 
-    setInterval(tick, 1000);
-
-  })();
-</script>
-
-
+    })();
+  </script>
 </body>
 </html>
