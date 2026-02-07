@@ -14,7 +14,7 @@
     body { font-family: Arial, sans-serif; padding: 20px; line-height: 1.5; font-size: 18px; }
     .note { color:#555; margin-bottom: 16px; }
     .row { display:flex; gap:12px; align-items:center; margin-bottom: 12px; flex-wrap: wrap; }
-    input[type="text"], input[type="number"], select { padding:6px 8px; font-size:16px; }
+    input[type="text"], select { padding:6px 8px; font-size:16px; }
     button { padding:6px 10px; font-size:16px; cursor:pointer; }
     ul { margin-top: 8px; }
     h3 { margin: 14px 0 8px; }
@@ -23,6 +23,7 @@
     .btn-group { display:flex; gap:8px; flex-wrap: wrap; }
   </style>
 </head>
+
 <body>
 
   <!-- TOP content -->
@@ -35,7 +36,10 @@
   <div class="divider"></div>
 
   <!-- Controls -->
-  <div class="note">All season boundary timestamps below are shown in <strong>UTC</strong>. Milestones use your entered offset.</div>
+  <div class="note">
+    All season boundary timestamps below are shown in <strong>UTC</strong>. Milestones use your entered offset.
+  </div>
+
   <div class="row">
     <label for="hemisphere">Hemisphere:</label>
     <select id="hemisphere" title="Choose hemisphere">
@@ -51,84 +55,54 @@
   </div>
 
   <div class="row btn-group">
-    <button id="useStd" title="Set to your local Standard Time fixed offset (e.g., New York = UTC-5)">Use Local Standard Time</button>
-    <button id="useDst" title="Set to your local Daylight Saving Time fixed offset (e.g., New York = UTC-4)">Use Local Daylight Time</button>
+    <button id="useStd" title="Set to your local Standard Time fixed offset (e.g., New York = UTC-5)">
+      Use Local Standard Time
+    </button>
+    <button id="useDst" title="Set to your local Daylight Saving Time fixed offset (e.g., New York = UTC-4)">
+      Use Local Daylight Time
+    </button>
   </div>
 
-  <div class="divider"></div>
-
-  <!-- NEW: Percentage formatting controls -->
+  <!-- Percent display controls (draft#9) -->
   <div class="row">
-    <label for="pctMethod">Percentage method:</label>
-    <select id="pctMethod" title="Choose how to format the percentage">
-      <option value="truncate">Truncate (floor)</option>
+    <label for="pctMode">Percent mode:</label>
+    <select id="pctMode" title="Round or truncate the displayed percentage">
+      <option value="truncate">Truncate</option>
       <option value="round">Round</option>
     </select>
 
     <label for="pctDecimals">Decimal places:</label>
-    <input id="pctDecimals" type="number" min="0" max="10" value="2" style="width: 70px;" />
-    <button id="applyPctSettings">Apply</button>
+    <select id="pctDecimals" title="How many decimals to show (0–6)"></select>
   </div>
 
   <script>
     const { DateTime, FixedOffsetZone } = luxon;
 
-    // ===== Milestones (unchanged) =====
+    // =========================
+    // draft#9:
+    // - Keeps draft#8's "off by one" fix (integer ms) in milestone elapsed + countdown
+    // - Adds percent formatting controls: truncate/round + 0..6 decimals
+    // - Adds "over 99.5%" / "over 99.95%" messaging near 100% for low decimals
+    // =========================
+
+    // ===== Milestones =====
     const milestones = [
       { label: "10%", value: 0.10 },
       { label: "20%", value: 0.20 },
       { label: "25%", value: 0.25 },
       { label: "30%", value: 0.30 },
-      { label: "⅓",  value: 1/3   },
+      { label: "⅓",  value: 1 / 3 },
       { label: "40%", value: 0.40 },
       { label: "50%", value: 0.50 },
       { label: "60%", value: 0.60 },
-      { label: "⅔",  value: 2/3   },
+      { label: "⅔",  value: 2 / 3 },
       { label: "70%", value: 0.70 },
       { label: "75%", value: 0.75 },
       { label: "80%", value: 0.80 },
       { label: "90%", value: 0.90 }
     ];
 
-    // ===== NEW: Percentage formatting settings =====
-    const PCT_METHOD_KEY = "pctMethod";
-    const PCT_DECIMALS_KEY = "pctDecimals";
-    const pctMethodSelect = document.getElementById("pctMethod");
-    const pctDecimalsInput = document.getElementById("pctDecimals");
-    const applyPctBtn = document.getElementById("applyPctSettings");
-
-    function getPctSettings() {
-      const method = localStorage.getItem(PCT_METHOD_KEY) || "truncate";
-      const decimals = parseInt(localStorage.getItem(PCT_DECIMALS_KEY) || "2", 10);
-      return { method, decimals };
-    }
-
-    function formatPercentage(rawPct) {
-      const { method, decimals } = getPctSettings();
-      const multiplier = Math.pow(10, decimals);
-      
-      let result;
-      if (method === "round") {
-        result = Math.round(rawPct * multiplier) / multiplier;
-      } else {
-        result = Math.floor(rawPct * multiplier) / multiplier;
-      }
-      
-      return result.toFixed(decimals);
-    }
-
-    applyPctBtn.addEventListener("click", () => {
-      const decimals = parseInt(pctDecimalsInput.value, 10);
-      if (isNaN(decimals) || decimals < 0 || decimals > 10) {
-        alert("Please enter a valid number of decimal places (0-10).");
-        return;
-      }
-      localStorage.setItem(PCT_METHOD_KEY, pctMethodSelect.value);
-      localStorage.setItem(PCT_DECIMALS_KEY, decimals.toString());
-      updateAll();
-    });
-
-    // ===== Hemisphere handling (unchanged) =====
+    // ===== Hemisphere handling =====
     const hemiSelect = document.getElementById("hemisphere");
     const HEMI_KEY = "seasonHemisphere";
     const hemiEmoji = { north: "🍂", south: "🌱" };
@@ -141,7 +115,9 @@
         "America/Montevideo", "America/Sao_Paulo", "America/Cayenne", "Atlantic/South_Georgia",
         "Africa/Johannesburg", "Africa/Windhoek", "Indian/Antananarivo", "Indian/Reunion", "Indian/Mauritius"
       ];
-      for (const p of southPrefixes) { if (tz.startsWith(p)) return "south"; }
+      for (const p of southPrefixes) {
+        if (tz.startsWith(p)) return "south";
+      }
       return "north";
     }
 
@@ -151,7 +127,7 @@
       return autoGuessHemisphere();
     }
 
-    // ===== User UTC offset (unchanged) =====
+    // ===== User UTC offset =====
     const offsetInput = document.getElementById("utcOffset");
     const applyBtn = document.getElementById("applyOffset");
     const OFFSET_KEY = "utcOffsetUser";
@@ -159,7 +135,13 @@
     function parseOffsetToMinutes(s) {
       if (!s) return null;
       s = s.trim();
-      if (/^[+-]?\d+(\.\d+)?$/.test(s)) return Math.round(parseFloat(s) * 60);
+
+      // examples: 1, -5.5, +3
+      if (/^[+-]?\d+(\.\d+)?$/.test(s)) {
+        return Math.round(parseFloat(s) * 60);
+      }
+
+      // example: +05:30, -04:00
       const m = s.match(/^([+-])(\d{1,2}):([0-5]\d)$/);
       if (m) {
         const sign = m[1] === "-" ? -1 : 1;
@@ -167,8 +149,10 @@
         const mm = parseInt(m[3], 10);
         return sign * (hh * 60 + mm);
       }
+
       return null;
     }
+
     function minutesToSignedHHMM(mins) {
       const sign = mins < 0 ? "-" : "+";
       const a = Math.abs(mins);
@@ -176,6 +160,7 @@
       const mm = (a % 60).toString().padStart(2, "0");
       return sign + hh + ":" + mm;
     }
+
     function zonePrettyLabel(mins) {
       if (mins == null) return "UTC";
       const sign = mins < 0 ? "-" : "+";
@@ -185,20 +170,29 @@
       if (minutes === 0) return `UTC${sign}${hours}`;
       return `UTC${minutesToSignedHHMM(mins)}`;
     }
+
     function getUserFixedZone() {
       const saved = localStorage.getItem(OFFSET_KEY);
       const mins = parseOffsetToMinutes(saved);
       if (mins === null) return null;
-      return { zone: luxon.FixedOffsetZone.instance(mins), mins };
+      return { zone: FixedOffsetZone.instance(mins), mins };
     }
+
     function setUserOffsetDisplay(mins) {
       const status = document.getElementById("offsetStatus");
-      if (mins === null) status.textContent = " (Using system clock; enter an offset like 1, -5.5, or +05:30)";
-      else status.textContent = " (" + zonePrettyLabel(mins) + ")";
+      if (mins === null) {
+        status.textContent = " (Using system clock; enter an offset like 1, -5.5, or +05:30)";
+      } else {
+        status.textContent = " (" + zonePrettyLabel(mins) + ")";
+      }
     }
+
     applyBtn.addEventListener("click", () => {
       const mins = parseOffsetToMinutes(offsetInput.value);
-      if (mins === null) { alert("Please enter a valid UTC offset (e.g., 1, -5.5, +05:30)."); return; }
+      if (mins === null) {
+        alert("Please enter a valid UTC offset (e.g., 1, -5.5, +05:30).");
+        return;
+      }
       localStorage.setItem(OFFSET_KEY, offsetInput.value.trim());
       setUserOffsetDisplay(mins);
       updateAll();
@@ -207,15 +201,20 @@
     // Local Standard / Daylight convenience buttons
     const useStdBtn = document.getElementById("useStd");
     const useDstBtn = document.getElementById("useDst");
+
     function getLocalStdDstOffsets(tz) {
       const y = DateTime.now().year;
       const jan = DateTime.fromObject({ year: y, month: 1, day: 15 }, { zone: tz });
       const jul = DateTime.fromObject({ year: y, month: 7, day: 15 }, { zone: tz });
-      const janOff = jan.offset, julOff = jul.offset;
+      const janOff = jan.offset;
+      const julOff = jul.offset;
+
+      // Standard time tends to have the larger absolute offset (e.g., -300 vs -240)
       const std = Math.abs(janOff) > Math.abs(julOff) ? janOff : julOff;
       const dst = (std === janOff) ? julOff : janOff;
       return { std, dst };
     }
+
     function applyFixedOffset(mins) {
       const hhmm = minutesToSignedHHMM(mins);
       localStorage.setItem(OFFSET_KEY, hhmm);
@@ -223,32 +222,59 @@
       setUserOffsetDisplay(mins);
       updateAll();
     }
+
     useStdBtn.addEventListener("click", () => {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const { std } = getLocalStdDstOffsets(tz);
       applyFixedOffset(std);
     });
+
     useDstBtn.addEventListener("click", () => {
       const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
       const { dst } = getLocalStdDstOffsets(tz);
       applyFixedOffset(dst);
     });
 
+    // ===== Percent display controls (draft#9) =====
+    const PCT_MODE_KEY = "pctMode";
+    const PCT_DECIMALS_KEY = "pctDecimals";
+    const pctModeSelect = document.getElementById("pctMode");
+    const pctDecimalsSelect = document.getElementById("pctDecimals");
+
+    // Populate decimal places 0..6
+    for (let i = 0; i <= 6; i++) {
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = String(i);
+      pctDecimalsSelect.appendChild(opt);
+    }
+
+    // ===== Round season boundaries to nearest minute (seconds still displayed as :00) =====
+    function roundToNearestMinute(dt) {
+      const sec = dt.second;
+      const base = dt.set({ second: 0, millisecond: 0 });
+      return sec >= 30 ? base.plus({ minutes: 1 }) : base;
+    }
+
     // ===== Auto season boundaries via Astronomy Engine =====
     const seasonsCache = new Map();
+
     function seasonsForYear(y) {
       if (!seasonsCache.has(y)) {
         const s = Astronomy.Seasons(y);
-        seasonsCache.set(y, {
-          mar: DateTime.fromJSDate(s.mar_equinox.date, { zone: "utc" }),
-          jun: DateTime.fromJSDate(s.jun_solstice.date, { zone: "utc" }),
-          sep: DateTime.fromJSDate(s.sep_equinox.date, { zone: "utc" }),
-          dec: DateTime.fromJSDate(s.dec_solstice.date, { zone: "utc" })
-        });
+
+        const mar = roundToNearestMinute(DateTime.fromJSDate(s.mar_equinox.date, { zone: "utc" }));
+        const jun = roundToNearestMinute(DateTime.fromJSDate(s.jun_solstice.date, { zone: "utc" }));
+        const sep = roundToNearestMinute(DateTime.fromJSDate(s.sep_equinox.date, { zone: "utc" }));
+        const dec = roundToNearestMinute(DateTime.fromJSDate(s.dec_solstice.date, { zone: "utc" }));
+
+        seasonsCache.set(y, { mar, jun, sep, dec });
       }
       return seasonsCache.get(y);
     }
 
+    // Determine current season interval (as defined for the Northern Hemisphere),
+    // then remap labels for Southern Hemisphere as needed.
     function currentSeasonBounds(nowUTC, hemi) {
       const y = nowUTC.year;
       const cur = seasonsForYear(y);
@@ -256,19 +282,31 @@
       const next = seasonsForYear(y + 1);
 
       let startUTC, endUTC, index;
+
+      // index: 0 spring, 1 summer, 2 autumn, 3 winter (north labels)
       if (nowUTC < cur.mar) {
-        startUTC = prev.dec; endUTC = cur.mar; index = 3;
+        startUTC = prev.dec;
+        endUTC = cur.mar;
+        index = 3;
       } else if (nowUTC < cur.jun) {
-        startUTC = cur.mar; endUTC = cur.jun; index = 0;
+        startUTC = cur.mar;
+        endUTC = cur.jun;
+        index = 0;
       } else if (nowUTC < cur.sep) {
-        startUTC = cur.jun; endUTC = cur.sep; index = 1;
+        startUTC = cur.jun;
+        endUTC = cur.sep;
+        index = 1;
       } else if (nowUTC < cur.dec) {
-        startUTC = cur.sep; endUTC = cur.dec; index = 2;
+        startUTC = cur.sep;
+        endUTC = cur.dec;
+        index = 2;
       } else {
-        startUTC = cur.dec; endUTC = next.mar; index = 3;
+        startUTC = cur.dec;
+        endUTC = next.mar;
+        index = 3;
       }
 
-      function labelsFor(index, hemi) {
+      function labelsFor(i, hemisphere) {
         const north = [
           { seasonName: "astronomical spring", start: "Spring begins (equinox)", end: "Summer begins (solstice)", emoji: "🌸" },
           { seasonName: "astronomical summer", start: "Summer begins (solstice)", end: "Autumn begins (equinox)", emoji: "☀️" },
@@ -276,23 +314,24 @@
           { seasonName: "astronomical winter", start: "Winter begins (solstice)", end: "Spring begins (equinox)", emoji: "❄️" }
         ];
         const southMap = [2, 3, 0, 1];
-        const rec = (hemi === "south") ? north[southMap[index]] : north[index];
+        const rec = (hemisphere === "south") ? north[southMap[i]] : north[i];
         return {
           seasonName: rec.seasonName,
           startLabel: rec.start,
           endLabel: rec.end,
-          emoji: (hemi === "south") ? "🌱" : (rec.emoji || "🍂")
+          emoji: (hemisphere === "south") ? "🌱" : (rec.emoji || "🍂")
         };
       }
 
       return { startUTC, endUTC, index, ...labelsFor(index, hemi) };
     }
 
-    // ===== Renderers (updated to use formatPercentage) =====
+    // ===== Renderers =====
     function updateSeasonHeading(bounds) {
       const hemiChoice = (localStorage.getItem(HEMI_KEY) || "auto");
       const hemi = hemiChoice === "auto" ? getHemisphere() : hemiChoice;
       const { seasonName, emoji } = bounds;
+
       document.getElementById("seasonHeading").textContent =
         `${emoji} Tracking ${seasonName} (${hemi === "south" ? "Southern" : "Northern"} Hemisphere label)`;
     }
@@ -304,24 +343,50 @@
 
       if (nowUTC < startUTC) {
         div.textContent = `The period for ${seasonName} hasn't started yet (based on UTC).`;
-      } else if (nowUTC > endUTC) {
-        div.textContent = `The period for ${seasonName} has already ended (based on UTC).`;
-      } else {
-        const totalSeconds = endUTC.diff(startUTC).as("seconds");
-        const elapsed = nowUTC.diff(startUTC).as("seconds");
-        const rawPct = (elapsed / totalSeconds) * 100;
-        const formattedPct = formatPercentage(rawPct);
-
-        let text = `${seasonName.charAt(0).toUpperCase() + seasonName.slice(1)} is ${formattedPct}% complete (UTC).`;
-
-        if (parseFloat(formattedPct) >= 99.99 && nowUTC < endUTC) {
-          const remaining = Math.max(0, Math.floor(endUTC.diff(nowUTC, "seconds").seconds));
-          const mm = Math.floor(remaining / 60);
-          const ss = String(remaining % 60).padStart(2, "0");
-          text += `  ⏳ ${mm}:${ss} remaining`;
-        }
-        div.textContent = text;
+        return;
       }
+
+      if (nowUTC > endUTC) {
+        div.textContent = `The period for ${seasonName} has already ended (based on UTC).`;
+        return;
+      }
+
+      const totalSeconds = endUTC.diff(startUTC).as("seconds");
+      const elapsed = nowUTC.diff(startUTC).as("seconds");
+      const rawPct = (elapsed / totalSeconds) * 100;
+
+      const mode = localStorage.getItem(PCT_MODE_KEY) || "truncate";
+      const decimals = Math.max(0, Math.min(6, parseInt(localStorage.getItem(PCT_DECIMALS_KEY) || "2", 10)));
+      const factor = Math.pow(10, decimals);
+
+      const displayedPct = (mode === "round")
+        ? (Math.round(rawPct * factor) / factor)
+        : (Math.floor(rawPct * factor) / factor);
+
+      // Threshold: 100 - 0.5 * 10^-decimals
+      const near100Threshold = 100 - (0.5 / factor);
+
+      let pctText;
+      if (decimals <= 1 && rawPct >= near100Threshold && rawPct < 100) {
+        // matches your preference:
+        // decimals=0 => over 99.5%
+        // decimals=1 => over 99.95%
+        pctText = `over ${near100Threshold.toFixed(decimals === 0 ? 1 : 2)}%`;
+      } else {
+        pctText = displayedPct.toFixed(decimals) + "%";
+      }
+
+      let text =
+        `${seasonName.charAt(0).toUpperCase() + seasonName.slice(1)} is ${pctText} complete (UTC).`;
+
+      if (displayedPct >= 99.99 && nowUTC < endUTC) {
+        const remaining = Math.max(0, Math.floor(endUTC.diff(nowUTC, "seconds").seconds));
+        const mm = Math.floor(remaining / 60);
+        const ss = String(remaining % 60).padStart(2, "0");
+        text += `  ⏳ ${mm}:${ss} remaining`;
+      }
+
+      div.textContent = text;
     }
 
     function showSeasonTimes(bounds) {
@@ -333,7 +398,7 @@
       const zoneLabel = z ? zonePrettyLabel(z.mins) : "UTC";
 
       const startStr = startUTC.setZone(displayZone).toFormat("EEE, MMM d, yyyy, HH:mm:ss") + ` ${zoneLabel}`;
-      const endStr   = endUTC.setZone(displayZone).toFormat("EEE, MMM d, yyyy, HH:mm:ss") + ` ${zoneLabel}`;
+      const endStr = endUTC.setZone(displayZone).toFormat("EEE, MMM d, yyyy, HH:mm:ss") + ` ${zoneLabel}`;
 
       timesDiv.innerHTML = `
         ${startLabel}: <strong>${startStr}</strong><br>
@@ -341,27 +406,58 @@
       `;
     }
 
+    // ===== Countdown formatter (used in milestone section) =====
+    function formatCountdown(totalSeconds) {
+      const s = Math.max(0, Math.floor(totalSeconds));
+      const days = Math.floor(s / 86400);
+      const rem = s % 86400;
+      const hh = Math.floor(rem / 3600).toString().padStart(2, "0");
+      const mm = Math.floor((rem % 3600) / 60).toString().padStart(2, "0");
+      const ss = Math.floor(rem % 60).toString().padStart(2, "0");
+      return `${days}d ${hh}:${mm}:${ss}`;
+    }
+
+    // ===== Milestones + elapsed + countdown (fixed to avoid off-by-one) =====
     function showMilestoneTimes(bounds) {
       const milestoneDiv = document.getElementById("milestones");
       const { startUTC, endUTC } = bounds;
       const nowUTC = DateTime.utc();
 
-      const totalSeconds = endUTC.diff(startUTC).as("seconds");
-      const clampedElapsed = Math.max(0, Math.min(totalSeconds, nowUTC.diff(startUTC).as("seconds")));
+      // Use integer milliseconds for consistent elapsed/remaining/total display
+      const startMs = startUTC.toMillis();
+      const endMs = endUTC.toMillis();
+      const nowMs = nowUTC.toMillis();
+
+      const totalMs = endMs - startMs;
+      const elapsedMs = Math.max(0, Math.min(totalMs, nowMs - startMs));
+
+      const totalSecondsInt = Math.floor(totalMs / 1000);
+      const elapsedSecondsInt = Math.floor(elapsedMs / 1000);
+      const remainingSecondsInt = Math.max(0, totalSecondsInt - elapsedSecondsInt);
 
       const z = getUserFixedZone();
       const displayZone = z ? z.zone : "utc";
       const zoneLabel = z ? zonePrettyLabel(z.mins) : "UTC";
 
-      let html = `<h3>Milestone Dates (shown in ${zoneLabel}):</h3>`;
-      html += `<p><strong>${Math.floor(clampedElapsed).toLocaleString()}</strong> seconds have passed out of <strong>${Math.floor(totalSeconds).toLocaleString()}</strong>.</p>`;
+      let html =
+        `<p><strong>${elapsedSecondsInt.toLocaleString()}</strong> seconds have passed out of ` +
+        `<strong>${totalSecondsInt.toLocaleString()}</strong>.</p>`;
+
+      // Countdown goes directly under the seconds-count-up line
+      html += `<p><strong>Countdown:</strong> ${formatCountdown(remainingSecondsInt)}</p>`;
+
+      // Milestone heading above the list
+      html += `<h3>Milestone Dates (shown in ${zoneLabel}):</h3>`;
       html += `<ul>`;
+
+      // Milestones computed from the same totalMs interval (consistent with rounding and display)
       for (const m of milestones) {
-        const secondsOffset = totalSeconds * m.value;
-        const milestoneDT = startUTC.plus({ seconds: secondsOffset }).setZone(displayZone);
+        const milestoneMsOffset = totalMs * m.value;
+        const milestoneDT = DateTime.fromMillis(startMs + milestoneMsOffset, { zone: "utc" }).setZone(displayZone);
         const label = milestoneDT.toFormat("EEE, MMM d, yyyy, HH:mm:ss") + ` ${zoneLabel}`;
         html += `<li>${m.label} complete: <strong>${label}</strong></li>`;
       }
+
       html += `</ul>`;
       milestoneDiv.innerHTML = html;
     }
@@ -373,8 +469,9 @@
       const nowInUserZone = z ? DateTime.now().setZone(z.zone) : DateTime.now();
       const nowUTC = DateTime.utc();
 
-      const userLabel = z ? zonePrettyLabel(z.mins)
-                          : (nowInUserZone.offset === 0 ? "UTC" : `UTC${minutesToSignedHHMM(nowInUserZone.offset)}`);
+      const userLabel = z
+        ? zonePrettyLabel(z.mins)
+        : (nowInUserZone.offset === 0 ? "UTC" : `UTC${minutesToSignedHHMM(nowInUserZone.offset)}`);
 
       currentDiv.textContent =
         `⏱ Current time (your entered offset): ${nowInUserZone.toFormat("EEE, MMM d, yyyy, HH:mm:ss")} (${userLabel})  |  ` +
@@ -384,6 +481,7 @@
     function updateAll() {
       const hemiChoice = (localStorage.getItem(HEMI_KEY) || "auto");
       const hemi = hemiChoice === "auto" ? getHemisphere() : hemiChoice;
+
       const nowUTC = DateTime.utc();
       const bounds = currentSeasonBounds(nowUTC, hemi);
 
@@ -394,14 +492,12 @@
       updateCurrentTime();
     }
 
-    // ===== Init =====
     (function initControls() {
-      // Hemisphere selector wiring
+      // Hemisphere selector
       const savedHemi = localStorage.getItem(HEMI_KEY) || "auto";
       hemiSelect.value = savedHemi;
       hemiSelect.addEventListener("change", () => {
-        const choice = hemiSelect.value;
-        localStorage.setItem(HEMI_KEY, choice);
+        localStorage.setItem(HEMI_KEY, hemiSelect.value);
         updateAll();
       });
 
@@ -411,10 +507,22 @@
       const z = getUserFixedZone();
       setUserOffsetDisplay(z ? z.mins : null);
 
-      // Percentage formatting
-      const { method, decimals } = getPctSettings();
-      pctMethodSelect.value = method;
-      pctDecimalsInput.value = decimals;
+      // Percent mode + decimals
+      const savedMode = localStorage.getItem(PCT_MODE_KEY) || "truncate";
+      pctModeSelect.value = savedMode;
+
+      const savedDec = localStorage.getItem(PCT_DECIMALS_KEY);
+      pctDecimalsSelect.value = (savedDec != null) ? savedDec : "2";
+
+      pctModeSelect.addEventListener("change", () => {
+        localStorage.setItem(PCT_MODE_KEY, pctModeSelect.value);
+        updateAll();
+      });
+
+      pctDecimalsSelect.addEventListener("change", () => {
+        localStorage.setItem(PCT_DECIMALS_KEY, pctDecimalsSelect.value);
+        updateAll();
+      });
     })();
 
     updateAll();
