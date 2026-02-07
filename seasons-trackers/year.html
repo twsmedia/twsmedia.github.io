@@ -61,7 +61,8 @@
         <label><input type="radio" name="pctMode" value="truncate"> Truncate (floor)</label>
       </span>
 
-      <span id="preview" class="note"></span>
+      <span id="preview" class="note" style="display:none"></span>
+
     </div>
   </div>
 
@@ -200,7 +201,7 @@
         $("offsetStatus").textContent =
           `Currently showing all times in fixed ${cachedLabel}.`;
         $("tzNote").textContent =
-          `By default, this tracker uses your local UTC offset on January 1 (standard or whatever is in effect there). ` +
+          `By default, this tracker uses your local UTC offset on January 1.` +
           `You can override it by entering any offset above.`;
       }
 
@@ -303,7 +304,9 @@
         }
 
         const { places, mode } = getPercentPrefs();
-        let now = DateTime.now().setZone(cachedZone);
+        let now = DateTime.now()
+  .setZone(cachedZone)
+  .startOf("second");
 
         // If the calendar year rolled over while the page is open, recompute
         if (now.year !== cachedYearStartDT.year) {
