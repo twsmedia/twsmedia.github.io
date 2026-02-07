@@ -30,6 +30,7 @@
 
   <!-- Settings -->
   <div id="tzNote" class="note"></div>
+
   <div class="row">
     <label for="hemisphere">Hemisphere:</label>
     <select id="hemisphere" title="Choose hemisphere">
@@ -42,6 +43,25 @@
     <input id="utcOffset" type="text" placeholder="Examples: 1, -5.5, +05:30" />
     <button id="applyOffset">Apply</button>
     <span id="offsetStatus" class="note"></span>
+  </div>
+
+  <div class="row">
+    <label for="pctMode">Percent display:</label>
+    <select id="pctMode" title="Choose rounding mode">
+      <option value="round">Round</option>
+      <option value="truncate">Truncate</option>
+    </select>
+
+    <label for="decimals">Decimal places:</label>
+    <select id="decimals" title="Choose decimal places">
+      <option value="0">0</option>
+      <option value="1">1</option>
+      <option value="2" selected>2</option>
+      <option value="3">3</option>
+      <option value="4">4</option>
+      <option value="5">5</option>
+      <option value="6">6</option>
+    </select>
   </div>
 
   <script>
@@ -76,11 +96,30 @@
         return null;
       }
 
+      function pad2(n){ return String(n).padStart(2,"0"); }
+      function formatCountdown(totalSeconds){
+        const s = Math.max(0, Math.floor(totalSeconds));
+        const days = Math.floor(s / 86400);
+        const rem1 = s % 86400;
+        const hours = Math.floor(rem1 / 3600);
+        const rem2 = rem1 % 3600;
+        const minutes = Math.floor(rem2 / 60);
+        const seconds = rem2 % 60;
+        if (days > 0) return `${days}d ${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}`;
+        return `${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}`;
+      }
+
       const HEMI_KEY = "seasonHemisphere";
       const OFFSET_KEY = "utcOffsetUser";
+      const PCT_MODE_KEY = "pctMode";
+      const DECIMALS_KEY = "pctDecimals";
+
       const hemiSelect = $("hemisphere");
       const offsetInput = $("utcOffset");
       const applyBtn = $("applyOffset");
+
+      const pctModeSelect = $("pctMode");
+      const decimalsSelect = $("decimals");
 
       function getUserFixedZone(){
         const saved = localStorage.getItem(OFFSET_KEY);
@@ -170,6 +209,42 @@
         { label: "90%", value: 0.90 }
       ];
 
+      function readPctPrefs(){
+        const mode = localStorage.getItem(PCT_MODE_KEY) || "round";
+        let decimals = parseInt(localStorage.getItem(DECIMALS_KEY) || "2", 10);
+        if (!Number.isFinite(decimals) || decimals < 0) decimals = 0;
+        if (decimals > 6) decimals = 6;
+        return { mode, decimals };
+      }
+
+      function applyPctPrefsToUI(){
+        const { mode, decimals } = readPctPrefs();
+        pctModeSelect.value = mode;
+        decimalsSelect.value = String(decimals);
+      }
+
+      function truncateToDecimals(x, d){
+        const factor = Math.pow(10, d);
+        // Using Math.trunc keeps behavior consistent for positive values (our pct is >= 0)
+        return Math.trunc(x * factor) / factor;
+      }
+
+      function formatPercent(pct, mode, decimals){
+        const threshold = 100 - (0.5 * Math.pow(10, -decimals)); // e.g. 99.5, 99.95, ...
+        if (mode === "round") {
+          const roundedStr = pct.toFixed(decimals);
+          const roundedNum = Number(roundedStr);
+          if (pct < 100 && roundedNum >= 100) {
+            // Avoid displaying 100% due to rounding
+            return `greater than ${threshold.toFixed(decimals)}% complete`;
+          }
+          return `${roundedStr}% complete`;
+        } else {
+          const truncated = truncateToDecimals(pct, decimals);
+          return `${truncated.toFixed(decimals)}% complete`;
+        }
+      }
+
       function updateAll(){
         const { zone, mins } = getUserFixedZone();
         const zoneLabel = zonePrettyLabel(mins);
@@ -177,25 +252,32 @@
         $("tzNote").textContent = `This tracker uses a fixed offset: ${zoneLabel} (ignores DST).`;
 
         const hemiChoice = localStorage.getItem(HEMI_KEY) || "auto";
-        const hemi = hemiChoice === "north" || hemiChoice === "south" ? hemiChoice : "north";
+        const hemi = hemiChoice === "south" ? "south" : "north";
+
+        const { mode, decimals } = readPctPrefs();
 
         const { currentSeason, start, end } = currentSeasonBounds(zone, hemi);
-        const totalSeconds = end.diff(start).as("seconds");
+
         const now = DateTime.now().setZone(zone);
 
-        $("seasonHeading").textContent = `${emojiBySeason[currentSeason]} Meteorological ${currentSeason} (${hemi==="south"?"Southern":"Northern"} Hemisphere)`; 
+        // Integer seconds based on epoch seconds to avoid off-by-one timer behavior
+        const startSec = Math.floor(start.toSeconds());
+        const endSec = Math.floor(end.toSeconds());
+        const nowSec = Math.floor(now.toSeconds());
+
+        const totalSeconds = Math.max(0, endSec - startSec);
+        const elapsedSeconds = Math.max(0, Math.min(totalSeconds, nowSec - startSec));
+        const remainingSeconds = Math.max(0, endSec - nowSec);
+
+        $("seasonHeading").textContent =
+          `${emojiBySeason[currentSeason]} Meteorological ${currentSeason} (${hemi==="south"?"Southern":"Northern"} Hemisphere)`;
 
         let progressText;
-        if (now < start) {
+        if (nowSec < startSec) {
           progressText = `Meteorological ${currentSeason} hasn't started yet.`;
         } else {
-          const elapsed = now.diff(start).as("seconds");
-          const pct = Math.max(0, Math.min(100, (elapsed/totalSeconds)*100));
-          if (pct >= 99.99 && pct < 100) {
-            progressText = `Meteorological ${currentSeason} is greater than 99.99% complete.`;
-          } else {
-            progressText = `Meteorological ${currentSeason} is ${pct.toFixed(2)}% complete.`;
-          }
+          const pct = totalSeconds === 0 ? 100 : (elapsedSeconds / totalSeconds) * 100;
+          progressText = `Meteorological ${currentSeason} is ${formatPercent(pct, mode, decimals)}.`;
         }
         $("seasonProgress").textContent = progressText;
 
@@ -205,14 +287,21 @@
           `${cap(currentSeason)} begins: <strong>${startStr}</strong><br>` +
           `${cap(nextSeason(currentSeason))} begins: <strong>${endStr}</strong>`;
 
-        const clampedElapsed = Math.max(0, Math.min(totalSeconds, now.diff(start).as("seconds")));
+        // Milestones
+        const totalMillis = Math.max(0, end.toMillis() - start.toMillis());
+
         let html = `<h3>Milestone Dates (${zoneLabel}):</h3>`;
-        html += `<p><strong>${Math.floor(clampedElapsed).toLocaleString()}</strong> seconds have passed out of <strong>${Math.floor(totalSeconds).toLocaleString()}</strong>.</p><ul>`;
+        html += `<ul>`;
         for (const m of milestones) {
-          const milestoneDT = start.plus({ seconds: totalSeconds * m.value });
+          const milestoneDT = start.plus({ milliseconds: totalMillis * m.value });
           html += `<li>${m.label} complete: <strong>${milestoneDT.toFormat("EEE, MMM d, yyyy, HH:mm:ss")} ${zoneLabel}</strong></li>`;
         }
         html += `</ul>`;
+
+        // Put the timing details AFTER the list (so "Milestone Dates" sits right above the 10%, 20%, etc.)
+        html += `<p><strong>${elapsedSeconds.toLocaleString()}</strong> seconds have passed out of <strong>${totalSeconds.toLocaleString()}</strong>.</p>`;
+        html += `<p>⏳ Time remaining until ${cap(nextSeason(currentSeason))}: <strong>${formatCountdown(remainingSeconds)}</strong></p>`;
+
         $("milestones").innerHTML = html;
 
         $("currentTime").textContent =
@@ -220,12 +309,14 @@
       }
 
       (function init(){
+        // Hemisphere
         hemiSelect.value = localStorage.getItem(HEMI_KEY) || "auto";
         hemiSelect.addEventListener("change", () => {
           localStorage.setItem(HEMI_KEY, hemiSelect.value);
           updateAll();
         });
 
+        // Offset
         const savedOffset = localStorage.getItem(OFFSET_KEY);
         if (savedOffset) offsetInput.value = savedOffset;
         const mins = parseOffsetToMinutes(savedOffset);
@@ -243,8 +334,32 @@
           updateAll();
         });
 
+        // Percent preferences
+        if (!localStorage.getItem(PCT_MODE_KEY)) localStorage.setItem(PCT_MODE_KEY, "round");
+        if (!localStorage.getItem(DECIMALS_KEY)) localStorage.setItem(DECIMALS_KEY, "2");
+        applyPctPrefsToUI();
+
+        pctModeSelect.addEventListener("change", () => {
+          localStorage.setItem(PCT_MODE_KEY, pctModeSelect.value);
+          updateAll();
+        });
+        decimalsSelect.addEventListener("change", () => {
+          localStorage.setItem(DECIMALS_KEY, decimalsSelect.value);
+          updateAll();
+        });
+
         updateAll();
-        setInterval(updateAll, 1000);
+
+        // Align updates to real-time second boundaries for a smoother, accurate countdown
+        function scheduleNextTick(){
+          const now = DateTime.now();
+          const msToNextSecond = 1000 - now.millisecond;
+          setTimeout(() => {
+            updateAll();
+            scheduleNextTick();
+          }, msToNextSecond);
+        }
+        scheduleNextTick();
       })();
     })();
   </script>
