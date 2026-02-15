@@ -73,6 +73,12 @@
     <span id="offsetStatus" class="note"></span>
   </div>
 
+  <div class="note" style="margin-top: 6px;">
+    <strong>Important:</strong> If you use DST/Summer Time presets (USA/UK/Europe/Australia), enter your <em>standard-time</em> UTC offset (no DST).
+    If it is not detected correctly on your device, type it above and click <strong>Apply</strong>.
+  </div>
+
+
   <div class="divider"></div>
 
   <!-- Output -->
@@ -114,10 +120,33 @@
         <input type="checkbox" id="toggleDstInterval">
         Apply DST interval (manual)
       </label>
+
+    <div class="row" style="margin-top: 6px; gap: 10px; align-items:center;">
+      <span class="note" style="margin:0;">Presets (auto-fill DST interval):</span>
+      <label style="display:flex; align-items:center; gap:6px; margin:0;">
+        <input type="checkbox" id="dstRuleUS"> USA
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; margin:0;">
+        <input type="checkbox" id="dstRuleUK"> UK (BST)
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; margin:0;">
+        <input type="checkbox" id="dstRuleEU"> Europe (EU)
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; margin:0;">
+        <input type="checkbox" id="dstRuleAU"> Australia (most states)
+      </label>
+    </div>
+
     </div>
 
     <details id="dstDetails">
       <summary><strong>Manual DST interval settings</strong> <span id="dstStatus" class="muted"></span></summary>
+
+      <div class="note" style="margin-top: 8px;">
+        <strong>All date-times on this page must be entered in Standard Time (no DST).</strong><br>
+        If you are currently observing DST, subtract 1 hour before entering.
+      </div>
+
 
       <div class="row" style="margin-top: 10px;">
         <label for="dstStart">DST start (STANDARD time):</label>
@@ -152,6 +181,7 @@
       const AMPM_KEY = "customSeason_ampm";
       const DST_TOGGLE_KEY = "customSeason_manualDstEnabled";
       const DST_CFG_KEY = "customSeason_manualDstConfig";
+      const DST_PRESET_KEY = "customSeason_dstPresetRule";
 
       function getTimePrefs() {
         const ampm = (localStorage.getItem(AMPM_KEY) === "true");
@@ -170,35 +200,62 @@
         if (!dt || !dt.isValid) return "—";
         if (ampm) {
           const s = dt.toFormat("EEE, MMM d, yyyy, h:mm:ssa");
-          return s.replace("AM", "am").replace("PM", "pm") + ` ${zoneLabel}`;
+          return s.replace("AM", "am").replace("PM", "pm");
         }
-        return dt.toFormat("EEE, MMM d, yyyy, HH:mm:ss") + ` ${zoneLabel}`;
+        return dt.toFormat("EEE, MMM d, yyyy, HH:mm:ss");
       }
 
       // Display-only manual DST: user enters start/end in STANDARD time for this fixed offset.
       // If dt falls within [start,end), add shiftMinutes (usually 60) for display.
       function applyManualDstIfNeeded(dtInDisplayZone, cachedLabel, prefs) {
-        if (!prefs?.dstOn || !prefs?.cfg) return { dt: dtInDisplayZone, isDst: false };
+  if (!prefs?.dstOn) return { dt: dtInDisplayZone, isDst: false };
 
-        // If the fixed offset is UTC, do not apply DST (keeps UTC clean)
-        if ((cachedLabel || "").toUpperCase() === "UTC") return { dt: dtInDisplayZone, isDst: false };
+  // If the fixed offset is UTC, do not apply DST (keeps UTC clean)
+  if ((cachedLabel || "").toUpperCase() === "UTC") {
+    return { dt: dtInDisplayZone, isDst: false };
+  }
 
-        const zone = dtInDisplayZone.zoneName; // fixed offset zone
-        const start = DateTime.fromISO(prefs.cfg.startISO, { zone });
-        const end = DateTime.fromISO(prefs.cfg.endISO, { zone });
-        if (!start.isValid || !end.isValid) return { dt: dtInDisplayZone, isDst: false };
+  const zone = dtInDisplayZone.zoneName; // fixed offset zone
 
-        const a = start <= end ? start : end;
-        const b = start <= end ? end : start;
+  // ✅ If a preset rule is selected (US/UK/EU/AU), compute bounds for THIS date's year
+  const presetRule = localStorage.getItem(DST_PRESET_KEY);
+  if (presetRule) {
+    let bounds = null;
 
-        const inInterval = dtInDisplayZone >= a && dtInDisplayZone < b;
-        if (!inInterval) return { dt: dtInDisplayZone, isDst: false };
+    if (presetRule === "US") {
+      bounds = usDstBoundsST(dtInDisplayZone.year, zone);
+    } else if (presetRule === "UK" || presetRule === "EU") {
+      bounds = ukEuDstBoundsST(dtInDisplayZone.year, zone);
+    } else if (presetRule === "AU") {
+      bounds = australiaDstBoundsST(dtInDisplayZone, zone);
+    }
 
-        const shift = Number(prefs.cfg.shiftMinutes ?? 60);
-        if (!Number.isFinite(shift)) return { dt: dtInDisplayZone, isDst: false };
+    if (bounds) {
+      const inInterval = dtInDisplayZone >= bounds.start && dtInDisplayZone < bounds.end;
+      if (!inInterval) return { dt: dtInDisplayZone, isDst: false };
 
-        return { dt: dtInDisplayZone.plus({ minutes: shift }), isDst: true };
-      }
+      return { dt: dtInDisplayZone.plus({ minutes: bounds.shiftMinutes }), isDst: true };
+    }
+  }
+
+  // 🔹 Fallback: manual single interval (your current behavior)
+  if (!prefs?.cfg) return { dt: dtInDisplayZone, isDst: false };
+
+  const start = DateTime.fromISO(prefs.cfg.startISO, { zone });
+  const end = DateTime.fromISO(prefs.cfg.endISO, { zone });
+  if (!start.isValid || !end.isValid) return { dt: dtInDisplayZone, isDst: false };
+
+  const a = start <= end ? start : end;
+  const b = start <= end ? end : start;
+
+  const inInterval = dtInDisplayZone >= a && dtInDisplayZone < b;
+  if (!inInterval) return { dt: dtInDisplayZone, isDst: false };
+
+  const shift = Number(prefs.cfg.shiftMinutes ?? 60);
+  if (!Number.isFinite(shift)) return { dt: dtInDisplayZone, isDst: false };
+
+  return { dt: dtInDisplayZone.plus({ minutes: shift }), isDst: true };
+}
 
 
       function $(id){ return document.getElementById(id); }
@@ -228,6 +285,122 @@
           return sign*(hh*60+mm);
         }
         return null;
+      }
+
+
+      // --- DST/Summer Time presets (auto-fill manual interval) ---
+      // USA: 2nd Sunday in March 02:00 (ST) -> 1st Sunday in Nov 01:00 (ST)
+      // UK/EU: last Sunday March/October at 01:00 UTC (then converted to user's STANDARD offset)
+      // Australia (most observing states): 1st Sunday Oct 02:00 (ST) -> 1st Sunday Apr 02:00 (ST) (spans years)
+
+      function nthWeekdayOfMonthInZone(year, month, weekday, nth, zone) {
+        let d = DateTime.fromObject({ year, month, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0 }, { zone });
+        const delta = (weekday - d.weekday + 7) % 7;
+        d = d.plus({ days: delta }).plus({ days: 7 * (nth - 1) });
+        return d;
+      }
+
+      function lastWeekdayOfMonthInZone(year, month, weekday, zone) {
+        let d = DateTime.fromObject({ year, month, day: 1, hour: 0, minute: 0, second: 0, millisecond: 0 }, { zone })
+          .endOf("month")
+          .startOf("day");
+        const deltaBack = (d.weekday - weekday + 7) % 7;
+        return d.minus({ days: deltaBack });
+      }
+
+      function toLocalInputValue(dt) {
+        return dt.toFormat("yyyy-LL-dd'T'HH:mm");
+      }
+
+      function usDstBoundsST(year, zone) {
+        const start = nthWeekdayOfMonthInZone(year, 3, 7, 2, zone).set({ hour: 2, minute: 0, second: 0, millisecond: 0 });
+        const end   = nthWeekdayOfMonthInZone(year, 11, 7, 1, zone).set({ hour: 1, minute: 0, second: 0, millisecond: 0 });
+        return { start, end, shiftMinutes: 60 };
+      }
+
+      function ukEuDstBoundsST(year, zone) {
+        const startUTC = lastWeekdayOfMonthInZone(year, 3, 7, "utc").set({ hour: 1, minute: 0, second: 0, millisecond: 0 });
+        const endUTC   = lastWeekdayOfMonthInZone(year, 10, 7, "utc").set({ hour: 1, minute: 0, second: 0, millisecond: 0 });
+        return { start: startUTC.setZone(zone), end: endUTC.setZone(zone), shiftMinutes: 60 };
+      }
+
+      function australiaDstBoundsST(nowST, zone) {
+        const y = nowST.year;
+        const startThisOct = nthWeekdayOfMonthInZone(y, 10, 7, 1, zone).set({ hour: 2, minute: 0, second: 0, millisecond: 0 });
+        const endNextApr   = nthWeekdayOfMonthInZone(y + 1, 4, 7, 1, zone).set({ hour: 2, minute: 0, second: 0, millisecond: 0 });
+        const startPrevOct = nthWeekdayOfMonthInZone(y - 1, 10, 7, 1, zone).set({ hour: 2, minute: 0, second: 0, millisecond: 0 });
+        const endThisApr   = nthWeekdayOfMonthInZone(y, 4, 7, 1, zone).set({ hour: 2, minute: 0, second: 0, millisecond: 0 });
+
+        if (nowST < endThisApr) return { start: startPrevOct, end: endThisApr, shiftMinutes: 60 };
+        return { start: startThisOct, end: endNextApr, shiftMinutes: 60 };
+      }
+
+      function getUserFixedZone() {
+        const saved = localStorage.getItem(LS.OFFSET);
+        const mins = parseOffsetToMinutes(saved);
+        if (mins === null) return null;
+        return { zone: FixedOffsetZone.instance(mins), mins };
+      }
+
+      function applyDstPreset(ruleId) {
+        const z = getUserFixedZone();
+        if (!z) {
+          alert("To use a DST/Summer Time preset, first enter your STANDARD (no-DST) UTC offset and click Apply.");
+          return false;
+        }
+
+        const zone = z.zone;
+        const nowST = DateTime.now().setZone(zone);
+
+        let bounds = null;
+        let label = "";
+
+        if (ruleId === "US") { bounds = usDstBoundsST(nowST.year, zone); label = "USA"; }
+        else if (ruleId === "UK") { bounds = ukEuDstBoundsST(nowST.year, zone); label = "UK (BST)"; }
+        else if (ruleId === "EU") { bounds = ukEuDstBoundsST(nowST.year, zone); label = "Europe (EU)"; }
+        else if (ruleId === "AU") { bounds = australiaDstBoundsST(nowST, zone); label = "Australia (most states)"; }
+        else return false;
+
+        const cfg = { startISO: toLocalInputValue(bounds.start), endISO: toLocalInputValue(bounds.end), shiftMinutes: bounds.shiftMinutes };
+        localStorage.setItem(DST_CFG_KEY, JSON.stringify(cfg));
+// ✅ keep the selected preset checked + active
+setPresetCheckboxes(ruleId);
+localStorage.setItem(DST_TOGGLE_KEY, "true");
+localStorage.setItem(DST_PRESET_KEY, ruleId);
+
+
+        // Update inputs if present
+        const dstStartInput = document.getElementById("dstStart");
+        const dstEndInput = document.getElementById("dstEnd");
+        const dstShiftInput = document.getElementById("dstShift");
+        const toggleDst = document.getElementById("toggleDstInterval");
+        const dstStatus = document.getElementById("dstStatus");
+
+        if (dstStartInput) dstStartInput.value = cfg.startISO;
+        if (dstEndInput) dstEndInput.value = cfg.endISO;
+        if (dstShiftInput) dstShiftInput.value = String(cfg.shiftMinutes);
+        if (toggleDst) toggleDst.checked = true;
+        if (dstStatus) dstStatus.textContent = `(Preset: ${label})`;
+
+        recomputeStatic();
+        tick();
+        return true;
+      }
+
+      function clearDstPreset() {
+        localStorage.removeItem(DST_PRESET_KEY);
+      }
+
+      function setPresetCheckboxes(ruleId) {
+        const map = { US: "dstRuleUS", UK: "dstRuleUK", EU: "dstRuleEU", AU: "dstRuleAU" };
+        Object.values(map).forEach(id => {
+          const el = document.getElementById(id);
+          if (el) el.checked = false;
+        });
+        if (ruleId && map[ruleId]) {
+          const el = document.getElementById(map[ruleId]);
+          if (el) el.checked = true;
+        }
       }
 
       // --- Storage keys ---
@@ -453,7 +626,8 @@
         cachedZone = zInfo.zone;
         cachedLabel = zInfo.label;
 
-        $("tzNote").textContent = `This tracker uses a fixed offset: ${cachedLabel}. You can optionally apply a manual DST interval for display.`;
+        $("tzNote").textContent = `Enter date-times in forced Standard Time which would involve subtracting an hour from a time in Daylight Saving Time. For example in New York, Sep 1, 2026 12:00:00am EDT would be entered as 
+        Aug 31, 2026, 11:00:00pm.`;
 
         const nm = nameInput.value.trim();
         const headingName = nm ? nm : "Custom Season";
@@ -512,7 +686,8 @@
 
                 const prefs2 = getTimePrefs();
 
-        let html = `<h3>Milestone Dates (${cachedLabel}):</h3><ul>`;
+        let html = `<h3>Milestone Dates:</h3><ul>`;
+
         for (const m of milestones){
           const dtBase = startDT.plus({ seconds: cachedTotalSecondsInt * m.value });
           const dtDisp = applyManualDstIfNeeded(dtBase, cachedLabel, prefs2);
@@ -651,6 +826,12 @@
       const clearDstIntervalBtn = $("clearDstInterval");
       const dstStatus = $("dstStatus");
 
+      const dstRuleUS = $("dstRuleUS");
+      const dstRuleUK = $("dstRuleUK");
+      const dstRuleEU = $("dstRuleEU");
+      const dstRuleAU = $("dstRuleAU");
+
+
       if (toggleAmpm) {
         toggleAmpm.checked = (localStorage.getItem(AMPM_KEY) === "true");
         toggleAmpm.addEventListener("change", () => {
@@ -665,9 +846,31 @@
         toggleDst.checked = (localStorage.getItem(DST_TOGGLE_KEY) === "true");
         toggleDst.addEventListener("change", () => {
           localStorage.setItem(DST_TOGGLE_KEY, toggleDst.checked ? "true" : "false");
+          if (!toggleDst.checked) { clearDstPreset(); setPresetCheckboxes(null); }
           recomputeStatic();
           tick();
         });
+
+      function wirePresetCheckbox(el, ruleId) {
+        if (!el) return;
+        el.addEventListener("change", () => {
+          if (el.checked) {
+            // Selecting a preset unchecks other presets and enables DST overlay
+            setPresetCheckboxes(ruleId);
+            applyDstPreset(ruleId);
+          } else {
+            // If user unchecks the selected preset, just clear the preset marker (keep manual settings as-is)
+            clearDstPreset();
+            if (dstStatus) dstStatus.textContent = "";
+          }
+        });
+      }
+
+      wirePresetCheckbox(dstRuleUS, "US");
+      wirePresetCheckbox(dstRuleUK, "UK");
+      wirePresetCheckbox(dstRuleEU, "EU");
+      wirePresetCheckbox(dstRuleAU, "AU");
+
       }
 
       // Load saved DST config into inputs
@@ -681,6 +884,22 @@
           if (dstStatus) dstStatus.textContent = "(Loaded saved DST interval)";
         }
       } catch {}
+
+
+      // Restore preset checkbox selection (if any)
+      const savedPreset = localStorage.getItem(DST_PRESET_KEY);
+      if (savedPreset) {
+        setPresetCheckboxes(savedPreset);
+        // Keep the status text if we have one
+        if (dstStatus && dstStatus.textContent.trim() === "") {
+          const label = (savedPreset === "US") ? "USA" :
+                        (savedPreset === "UK") ? "UK (BST)" :
+                        (savedPreset === "EU") ? "Europe (EU)" :
+                        (savedPreset === "AU") ? "Australia (most states)" : "";
+          if (label) dstStatus.textContent = `(Preset: ${label})`;
+        }
+      }
+
 
       if (saveDstIntervalBtn) {
         saveDstIntervalBtn.addEventListener("click", () => {
@@ -704,6 +923,7 @@
       if (clearDstIntervalBtn) {
         clearDstIntervalBtn.addEventListener("click", () => {
           localStorage.removeItem(DST_CFG_KEY);
+          clearDstPreset(); setPresetCheckboxes(null);
           if (dstStartInput) dstStartInput.value = "";
           if (dstEndInput) dstEndInput.value = "";
           if (dstShiftInput) dstShiftInput.value = "60";
