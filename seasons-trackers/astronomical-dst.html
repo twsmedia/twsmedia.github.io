@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Season Progress Tracker (auto seasons + UTC display + hemisphere + user UTC offset)</title>
+
+  <!-- Luxon (time handling) -->
+  <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
+
+  <!-- Astronomy Engine (equinoxes/solstices) -->
+  <script src="https://cdn.jsdelivr.net/npm/astronomy-engine/astronomy.browser.min.js"></script>
+
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; line-height: 1.5; font-size: 18px; }
+    .note { color:#555; margin-bottom: 16px; }
+    .row { display:flex; gap:12px; align-items:center; margin-bottom: 12px; flex-wrap: wrap; }
+    input[type="text"], select { padding:6px 8px; font-size:16px; }
+    button { padding:6px 10px; font-size:16px; cursor:pointer; }
+    ul { margin-top: 8px; }
+    h3 { margin: 14px 0 8px; }
+    #seasonHeading { font-size: 20px; margin: 8px 0 6px; }
+    .divider { height: 1px; background: #e4e4e4; margin: 18px 0; }
+    .btn-group { display:flex; gap:8px; flex-wrap: wrap; }
+    #useStd,
+#useDst {
+  display: none !important;
+  </style>
+</head>
+
+<body>
+
+  <!-- TOP content -->
+  <div id="seasonHeading"></div>
+  <div id="seasonProgress" style="margin-bottom: 10px;"></div>
+  <div id="seasonTimes" class="note"></div>
+  <div id="milestones" style="font-size: 16px; margin-bottom: 20px;"></div>
+  <div id="currentTime" style="font-size: 14px; color: gray;"></div>
+
+  <div class="divider"></div>
+
+  <!-- Controls -->
+  <div class="note">
+    All season boundary timestamps below are shown in <strong>UTC</strong>. Milestones use your entered offset.
+  </div>
+
+  <div class="row">
+    <label for="hemisphere">Hemisphere:</label>
+    <select id="hemisphere" title="Choose hemisphere">
+      <option value="auto">Auto (by time zone)</option>
+      <option value="north">Northern Hemisphere</option>
+      <option value="south">Southern Hemisphere</option>
+    </select>
+
+    <label for="utcOffset">Your UTC offset (no DST):</label>
+    <input id="utcOffset" type="text" placeholder="Examples: 1, -5.5, +05:30" />
+    <button id="applyOffset">Apply</button>
+    <span id="offsetStatus" class="note"></span>
+  </div>
+
+  <div class="row btn-group">
+    <button id="useStd" title="Set to your local Standard Time fixed offset (e.g., New York = UTC-5)">
+      Use Local Standard Time
+    </button>
+    <button id="useDst" title="Set to your local Daylight Saving Time fixed offset (e.g., New York = UTC-4)">
+      Use Local Daylight Time
+    </button>
+  </div>
+
+  <!-- Percent display controls (draft#9) -->
+  <div class="row">
+    <label for="pctMode">Percent mode:</label>
+    <select id="pctMode" title="Round or truncate the displayed percentage">
+      <option value="truncate">Truncate</option>
+      <option value="round">Round</option>
+    </select>
+
+    <label for="pctDecimals">Decimal places:</label>
+    <select id="pctDecimals" title="How many decimals to show (0–6)"></select>
+  </div>
+
+
+  <!-- Time display toggles (draft#10a) -->
+  <div class="row">
+    <label style="display:flex; align-items:center; gap:8px;">
+      <input type="checkbox" id="toggleAmpm">
+      Show milestone times in AM/PM (12-hour)
+    </label>
+
+    <label style="display:flex; align-items:center; gap:8px;">
+      <input type="checkbox" id="toggleDstInterval">
+      Apply DST interval (manual)
+    </label>
+
+    <details id="dstDetails" style="grid-column: 1 / -1; margin-top: 6px;">
+      <summary><strong>Manual DST interval settings</strong> <span id="dstStatus" style="color: gray;"></span></summary>
+      <div class="row" style="margin-top: 10px;">
+        <label for="dstStart">DST start (STANDARD time):</label>
+        <input id="dstStart" type="datetime-local" />
+        <label for="dstEnd">DST end (STANDARD time):</label>
+        <input id="dstEnd" type="datetime-local" />
+      </div>
+      <div class="row">
+        <label for="dstShift">DST shift minutes:</label>
+        <input id="dstShift" type="number" value="60" step="1" />
+        <div class="btn-group">
+          <button id="saveDstInterval">Save DST interval</button>
+          <button id="clearDstInterval">Clear saved DST</button>
+        </div>
+      </div>
+      <div class="note">
+        Example (USA 2026): start <strong>2026-03-08 02:00</strong>, end <strong>2026-11-01 01:00</strong>, shift <strong>60</strong> minutes.
+      </div>
+    </details>
+  </div>
+
+
+  <script>
+    const { DateTime, FixedOffsetZone } = luxon;
+
+    // =========================
+    // draft#9:
+    // - Keeps draft#8's "off by one" fix (integer ms) in milestone elapsed + countdown
+    // - Adds percent formatting controls: truncate/round + 0..6 decimals
+    // - Adds "over 99.5%" / "over 99.95%" messaging near 100% for low decimals
+    // =========================
+
+    // ===== Milestones =====
+    const milestones = [
+      { label: "10%", value: 0.10 },
+      { label: "20%", value: 0.20 },
+      { label: "25%", value: 0.25 },
+      { label: "30%", value: 0.30 },
+      { label: "⅓",  value: 1 / 3 },
+      { label: "40%", value: 0.40 },
+      { label: "50%", value: 0.50 },
+      { label: "60%", value: 0.60 },
+      { label: "⅔",  value: 2 / 3 },
+      { label: "70%", value: 0.70 },
+      { label: "75%", value: 0.75 },
+      { label: "80%", value: 0.80 },
+      { label: "90%", value: 0.90 }
+    ];
+
+    // ===== Hemisphere handling =====
+    const hemiSelect = document.getElementById("hemisphere");
+    const HEMI_KEY = "seasonHemisphere";
+    const hemiEmoji = { north: "🍂", south: "🌱" };
+
+    function autoGuessHemisphere() {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+      const southPrefixes = [
+        "Australia/", "Pacific/Auckland", "Pacific/Chatham", "Pacific/Easter", "Pacific/Tahiti",
+        "America/Argentina", "America/Santiago", "America/Punta_Arenas", "America/Asuncion",
+        "America/Montevideo", "America/Sao_Paulo", "America/Cayenne", "Atlantic/South_Georgia",
+        "Africa/Johannesburg", "Africa/Windhoek", "Indian/Antananarivo", "Indian/Reunion", "Indian/Mauritius"
+      ];
+      for (const p of southPrefixes) {
+        if (tz.startsWith(p)) return "south";
+      }
+      return "north";
+    }
+
+    function getHemisphere() {
+      const saved = localStorage.getItem(HEMI_KEY) || "auto";
+      if (saved === "north" || saved === "south") return saved;
+      return autoGuessHemisphere();
+    }
+
+    // ===== User UTC offset =====
+    const offsetInput = document.getElementById("utcOffset");
+    const applyBtn = document.getElementById("applyOffset");
+    const OFFSET_KEY = "utcOffsetUser";
+
+    // ===== Time display toggles (draft#10a) =====
+    const AMPM_KEY = "milestoneAmpm";
+    const DST_TOGGLE_KEY = "manualDstEnabled";
+    const DST_CFG_KEY = "manualDstConfig";
+
+
+    function parseOffsetToMinutes(s) {
+      if (!s) return null;
+      s = s.trim();
+
+      // examples: 1, -5.5, +3
+      if (/^[+-]?\d+(\.\d+)?$/.test(s)) {
+        return Math.round(parseFloat(s) * 60);
+      }
+
+      // example: +05:30, -04:00
+      const m = s.match(/^([+-])(\d{1,2}):([0-5]\d)$/);
+      if (m) {
+        const sign = m[1] === "-" ? -1 : 1;
+        const hh = parseInt(m[2], 10);
+        const mm = parseInt(m[3], 10);
+        return sign * (hh * 60 + mm);
+      }
+
+      return null;
+    }
+
+    function minutesToSignedHHMM(mins) {
+      const sign = mins < 0 ? "-" : "+";
+      const a = Math.abs(mins);
+      const hh = Math.floor(a / 60).toString().padStart(2, "0");
+      const mm = (a % 60).toString().padStart(2, "0");
+      return sign + hh + ":" + mm;
+    }
+
+    function zonePrettyLabel(mins) {
+      if (mins == null) return "UTC";
+      const sign = mins < 0 ? "-" : "+";
+      const a = Math.abs(mins);
+      const hours = Math.floor(a / 60);
+      const minutes = a % 60;
+      if (minutes === 0) return `UTC${sign}${hours}`;
+      return `UTC${minutesToSignedHHMM(mins)}`;
+    }
+
+    // ===== Time display helpers (draft#10a) =====
+    function getTimePrefs() {
+      const ampm = (localStorage.getItem(AMPM_KEY) === "true");
+      const dstOn = (localStorage.getItem(DST_TOGGLE_KEY) === "true");
+      let cfg = null;
+      try {
+        const raw = localStorage.getItem(DST_CFG_KEY);
+        if (raw) cfg = JSON.parse(raw);
+      } catch {}
+      if (cfg && (!cfg.startISO || !cfg.endISO)) cfg = null;
+      if (cfg && (cfg.shiftMinutes == null || cfg.shiftMinutes === "")) cfg.shiftMinutes = 60;
+      return { ampm, dstOn, cfg };
+    }
+
+    function formatDTForUI(dt, zoneLabel, ampm, omitZoneWhenAmpm) {
+      if (!dt || !dt.isValid) return "—";
+      if (ampm) {
+        // Example: Mon, Jan 12, 2026 3:58:45pm
+        const s = dt.toFormat("EEE, MMM d, yyyy, h:mm:ssa");
+        const fixed = s.replace("AM", "am").replace("PM", "pm");
+        return omitZoneWhenAmpm ? fixed : (fixed + ` ${zoneLabel}`);
+      }
+      return dt.toFormat("EEE, MMM d, yyyy, HH:mm:ss") + ` ${zoneLabel}`;
+    }
+
+    // Manual DST: user enters start/end in STANDARD time for their location (same fixed offset used for display).
+    // If dt is within that interval, add shiftMinutes (usually 60) for DISPLAY ONLY.
+    function applyManualDstIfNeeded(dtInDisplayZone, displayZone, prefs) {
+      if (!prefs?.dstOn || !prefs?.cfg) return { dt: dtInDisplayZone, isDst: false };
+      // Do not apply manual DST when showing pure UTC (prevents surprising shifts)
+      if (String(displayZone).toLowerCase() === "utc") return { dt: dtInDisplayZone, isDst: false };
+
+      const zone = displayZone;
+      const start = DateTime.fromISO(prefs.cfg.startISO, { zone });
+      const end = DateTime.fromISO(prefs.cfg.endISO, { zone });
+      if (!start.isValid || !end.isValid) return { dt: dtInDisplayZone, isDst: false };
+
+      const a = start <= end ? start : end;
+      const b = start <= end ? end : start;
+
+      const inInterval = dtInDisplayZone >= a && dtInDisplayZone < b;
+      if (!inInterval) return { dt: dtInDisplayZone, isDst: false };
+
+      const shift = Number(prefs.cfg.shiftMinutes ?? 60);
+      if (!Number.isFinite(shift)) return { dt: dtInDisplayZone, isDst: false };
+
+      return { dt: dtInDisplayZone.plus({ minutes: shift }), isDst: true };
+    }
+
+
+    function getUserFixedZone() {
+      const saved = localStorage.getItem(OFFSET_KEY);
+      const mins = parseOffsetToMinutes(saved);
+      if (mins === null) return null;
+      return { zone: FixedOffsetZone.instance(mins), mins };
+    }
+
+    function setUserOffsetDisplay(mins) {
+      const status = document.getElementById("offsetStatus");
+      if (mins === null) {
+        status.textContent = " (Using system clock; enter an offset like 1, -5.5, or +05:30)";
+      } else {
+        status.textContent = " (" + zonePrettyLabel(mins) + ")";
+      }
+    }
+
+    applyBtn.addEventListener("click", () => {
+      const mins = parseOffsetToMinutes(offsetInput.value);
+      if (mins === null) {
+        alert("Please enter a valid UTC offset (e.g., 1, -5.5, +05:30).");
+        return;
+      }
+      localStorage.setItem(OFFSET_KEY, offsetInput.value.trim());
+      setUserOffsetDisplay(mins);
+      updateAll();
+    });
+
+    // Local Standard / Daylight convenience buttons
+    const useStdBtn = document.getElementById("useStd");
+    const useDstBtn = document.getElementById("useDst");
+
+    function getLocalStdDstOffsets(tz) {
+      const y = DateTime.now().year;
+      const jan = DateTime.fromObject({ year: y, month: 1, day: 15 }, { zone: tz });
+      const jul = DateTime.fromObject({ year: y, month: 7, day: 15 }, { zone: tz });
+      const janOff = jan.offset;
+      const julOff = jul.offset;
+
+      // Standard time tends to have the larger absolute offset (e.g., -300 vs -240)
+      const std = Math.abs(janOff) > Math.abs(julOff) ? janOff : julOff;
+      const dst = (std === janOff) ? julOff : janOff;
+      return { std, dst };
+    }
+
+    function applyFixedOffset(mins) {
+      const hhmm = minutesToSignedHHMM(mins);
+      localStorage.setItem(OFFSET_KEY, hhmm);
+      offsetInput.value = hhmm;
+      setUserOffsetDisplay(mins);
+      updateAll();
+    }
+
+    useStdBtn.addEventListener("click", () => {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const { std } = getLocalStdDstOffsets(tz);
+      applyFixedOffset(std);
+    });
+
+    useDstBtn.addEventListener("click", () => {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const { dst } = getLocalStdDstOffsets(tz);
+      applyFixedOffset(dst);
+    });
+
+    // ===== Percent display controls (draft#9) =====
+    const PCT_MODE_KEY = "pctMode";
+    const PCT_DECIMALS_KEY = "pctDecimals";
+    const pctModeSelect = document.getElementById("pctMode");
+    const pctDecimalsSelect = document.getElementById("pctDecimals");
+
+    // Populate decimal places 0..6
+    for (let i = 0; i <= 6; i++) {
+      const opt = document.createElement("option");
+      opt.value = String(i);
+      opt.textContent = String(i);
+      pctDecimalsSelect.appendChild(opt);
+    }
+
+    // ===== Round season boundaries to nearest minute (seconds still displayed as :00) =====
+    function roundToNearestMinute(dt) {
+      const sec = dt.second;
+      const base = dt.set({ second: 0, millisecond: 0 });
+      return sec >= 30 ? base.plus({ minutes: 1 }) : base;
+    }
+
+    // ===== Auto season boundaries via Astronomy Engine =====
+    const seasonsCache = new Map();
+
+    function seasonsForYear(y) {
+      if (!seasonsCache.has(y)) {
+        const s = Astronomy.Seasons(y);
+
+        const mar = roundToNearestMinute(DateTime.fromJSDate(s.mar_equinox.date, { zone: "utc" }));
+        const jun = roundToNearestMinute(DateTime.fromJSDate(s.jun_solstice.date, { zone: "utc" }));
+        const sep = roundToNearestMinute(DateTime.fromJSDate(s.sep_equinox.date, { zone: "utc" }));
+        const dec = roundToNearestMinute(DateTime.fromJSDate(s.dec_solstice.date, { zone: "utc" }));
+
+        seasonsCache.set(y, { mar, jun, sep, dec });
+      }
+      return seasonsCache.get(y);
+    }
+
+    // Determine current season interval (as defined for the Northern Hemisphere),
+    // then remap labels for Southern Hemisphere as needed.
+    function currentSeasonBounds(nowUTC, hemi) {
+      const y = nowUTC.year;
+      const cur = seasonsForYear(y);
+      const prev = seasonsForYear(y - 1);
+      const next = seasonsForYear(y + 1);
+
+      let startUTC, endUTC, index;
+
+      // index: 0 spring, 1 summer, 2 autumn, 3 winter (north labels)
+      if (nowUTC < cur.mar) {
+        startUTC = prev.dec;
+        endUTC = cur.mar;
+        index = 3;
+      } else if (nowUTC < cur.jun) {
+        startUTC = cur.mar;
+        endUTC = cur.jun;
+        index = 0;
+      } else if (nowUTC < cur.sep) {
+        startUTC = cur.jun;
+        endUTC = cur.sep;
+        index = 1;
+      } else if (nowUTC < cur.dec) {
+        startUTC = cur.sep;
+        endUTC = cur.dec;
+        index = 2;
+      } else {
+        startUTC = cur.dec;
+        endUTC = next.mar;
+        index = 3;
+      }
+
+      function labelsFor(i, hemisphere) {
+        const north = [
+          { seasonName: "astronomical spring", start: "Spring begins (equinox)", end: "Summer begins (solstice)", emoji: "🌸" },
+          { seasonName: "astronomical summer", start: "Summer begins (solstice)", end: "Autumn begins (equinox)", emoji: "☀️" },
+          { seasonName: "astronomical autumn", start: "Autumn begins (equinox)", end: "Winter begins (solstice)", emoji: "🍂" },
+          { seasonName: "astronomical winter", start: "Winter begins (solstice)", end: "Spring begins (equinox)", emoji: "❄️" }
+        ];
+        const southMap = [2, 3, 0, 1];
+        const rec = (hemisphere === "south") ? north[southMap[i]] : north[i];
+        return {
+          seasonName: rec.seasonName,
+          startLabel: rec.start,
+          endLabel: rec.end,
+          emoji: (hemisphere === "south") ? "🌱" : (rec.emoji || "🍂")
+        };
+      }
+
+      return { startUTC, endUTC, index, ...labelsFor(index, hemi) };
+    }
+
+    // ===== Renderers =====
+    function updateSeasonHeading(bounds) {
+      const hemiChoice = (localStorage.getItem(HEMI_KEY) || "auto");
+      const hemi = hemiChoice === "auto" ? getHemisphere() : hemiChoice;
+      const { seasonName, emoji } = bounds;
+
+      document.getElementById("seasonHeading").textContent =
+        `${emoji} Tracking ${seasonName} (${hemi === "south" ? "Southern" : "Northern"} Hemisphere label)`;
+    }
+
+    function updateSeasonProgress(bounds) {
+      const nowUTC = DateTime.utc();
+      const { startUTC, endUTC, seasonName } = bounds;
+      const div = document.getElementById("seasonProgress");
+
+      if (nowUTC < startUTC) {
+        div.textContent = `The period for ${seasonName} hasn't started yet (based on UTC).`;
+        return;
+      }
+
+      if (nowUTC > endUTC) {
+        div.textContent = `The period for ${seasonName} has already ended (based on UTC).`;
+        return;
+      }
+
+      const totalSeconds = endUTC.diff(startUTC).as("seconds");
+      const elapsed = nowUTC.diff(startUTC).as("seconds");
+      const rawPct = (elapsed / totalSeconds) * 100;
+
+      const mode = localStorage.getItem(PCT_MODE_KEY) || "truncate";
+      const decimals = Math.max(0, Math.min(6, parseInt(localStorage.getItem(PCT_DECIMALS_KEY) || "2", 10)));
+      const factor = Math.pow(10, decimals);
+
+      const displayedPct = (mode === "round")
+        ? (Math.round(rawPct * factor) / factor)
+        : (Math.floor(rawPct * factor) / factor);
+
+      // Threshold: 100 - 0.5 * 10^-decimals
+      const near100Threshold = 100 - (0.5 / factor);
+
+      let pctText;
+      if (decimals <= 1 && rawPct >= near100Threshold && rawPct < 100) {
+        // matches your preference:
+        // decimals=0 => over 99.5%
+        // decimals=1 => over 99.95%
+        pctText = `over ${near100Threshold.toFixed(decimals === 0 ? 1 : 2)}%`;
+      } else {
+        pctText = displayedPct.toFixed(decimals) + "%";
+      }
+
+      let text =
+        `${seasonName.charAt(0).toUpperCase() + seasonName.slice(1)} is ${pctText} complete (UTC).`;
+
+      if (displayedPct >= 99.99 && nowUTC < endUTC) {
+        const remaining = Math.max(0, Math.floor(endUTC.diff(nowUTC, "seconds").seconds));
+        const mm = Math.floor(remaining / 60);
+        const ss = String(remaining % 60).padStart(2, "0");
+        text += `  ⏳ ${mm}:${ss} remaining`;
+      }
+
+      div.textContent = text;
+    }
+
+    function showSeasonTimes(bounds) {
+      const { startUTC, endUTC, startLabel, endLabel } = bounds;
+      const timesDiv = document.getElementById("seasonTimes");
+
+      const z = getUserFixedZone();
+      const displayZone = z ? z.zone : "utc";
+      const zoneLabel = z ? zonePrettyLabel(z.mins) : "UTC";
+
+            const prefs = getTimePrefs();
+
+      const startBase = startUTC.setZone(displayZone);
+      const endBase = endUTC.setZone(displayZone);
+
+      const startDisp = applyManualDstIfNeeded(startBase, displayZone, prefs);
+      const endDisp = applyManualDstIfNeeded(endBase, displayZone, prefs);
+
+      const startStr = formatDTForUI(startDisp.dt, zoneLabel, prefs.ampm, true) + (startDisp.isDst ? " (DST)" : "");
+      const endStr = formatDTForUI(endDisp.dt, zoneLabel, prefs.ampm, true) + (endDisp.isDst ? " (DST)" : "");
+
+      timesDiv.innerHTML = `
+        ${startLabel}: <strong>${startStr}</strong><br>
+        ${endLabel}: <strong>${endStr}</strong>
+      `;
+    }
+
+    // ===== Countdown formatter (used in milestone section) =====
+    function formatCountdown(totalSeconds) {
+      const s = Math.max(0, Math.floor(totalSeconds));
+      const days = Math.floor(s / 86400);
+      const rem = s % 86400;
+      const hh = Math.floor(rem / 3600).toString().padStart(2, "0");
+      const mm = Math.floor((rem % 3600) / 60).toString().padStart(2, "0");
+      const ss = Math.floor(rem % 60).toString().padStart(2, "0");
+      return `${days}d ${hh}:${mm}:${ss}`;
+    }
+
+    // ===== Milestones + elapsed + countdown (fixed to avoid off-by-one) =====
+    function showMilestoneTimes(bounds) {
+      const milestoneDiv = document.getElementById("milestones");
+      const { startUTC, endUTC } = bounds;
+      const nowUTC = DateTime.utc();
+
+      // Use integer milliseconds for consistent elapsed/remaining/total display
+      const startMs = startUTC.toMillis();
+      const endMs = endUTC.toMillis();
+      const nowMs = nowUTC.toMillis();
+
+      const totalMs = endMs - startMs;
+      const elapsedMs = Math.max(0, Math.min(totalMs, nowMs - startMs));
+
+      const totalSecondsInt = Math.floor(totalMs / 1000);
+      const elapsedSecondsInt = Math.floor(elapsedMs / 1000);
+      const remainingSecondsInt = Math.max(0, totalSecondsInt - elapsedSecondsInt);
+
+      const z = getUserFixedZone();
+      const displayZone = z ? z.zone : "utc";
+      const zoneLabel = z ? zonePrettyLabel(z.mins) : "UTC";
+
+      let html =
+        `<p><strong>${elapsedSecondsInt.toLocaleString()}</strong> seconds have passed out of ` +
+        `<strong>${totalSecondsInt.toLocaleString()}</strong>.</p>`;
+
+      // Countdown goes directly under the seconds-count-up line
+      html += `<p><strong>Countdown:</strong> ${formatCountdown(remainingSecondsInt)}</p>`;
+
+      // Milestone heading above the list
+      html += `<h3>Milestone Dates (shown in ${zoneLabel}):</h3>`;
+      html += `<ul>`;
+
+      // Milestones computed from the same totalMs interval (consistent with rounding and display)
+      for (const m of milestones) {
+        const milestoneMsOffset = totalMs * m.value;
+        const milestoneDT = DateTime.fromMillis(startMs + milestoneMsOffset, { zone: "utc" }).setZone(displayZone);
+                const prefs = getTimePrefs();
+        const mDisp = applyManualDstIfNeeded(milestoneDT, displayZone, prefs);
+        const label = formatDTForUI(mDisp.dt, zoneLabel, prefs.ampm, true) + (mDisp.isDst ? " (DST)" : "");
+        html += `<li>${m.label} complete: <strong>${label}</strong></li>`;
+      }
+
+      html += `</ul>`;
+      milestoneDiv.innerHTML = html;
+    }
+
+    function updateCurrentTime() {
+      const currentDiv = document.getElementById("currentTime");
+      const z = getUserFixedZone();
+
+      const nowInUserZone = z ? DateTime.now().setZone(z.zone) : DateTime.now();
+      const nowUTC = DateTime.utc();
+
+      const userLabel = z
+        ? zonePrettyLabel(z.mins)
+        : (nowInUserZone.offset === 0 ? "UTC" : `UTC${minutesToSignedHHMM(nowInUserZone.offset)}`);
+
+            const prefs = getTimePrefs();
+      const nowDisp = applyManualDstIfNeeded(nowInUserZone, z ? z.zone : "local", prefs);
+      const nowStr = formatDTForUI(nowDisp.dt, userLabel, prefs.ampm, false) + (nowDisp.isDst ? " (DST)" : "");
+
+      currentDiv.textContent =
+        `⏱ Current time (your entered offset): ${nowStr}  |  ` +
+        `UTC now: ${nowUTC.toFormat("EEE, MMM d, yyyy, HH:mm:ss 'UTC'")}`;
+    }
+
+    function updateAll() {
+      const hemiChoice = (localStorage.getItem(HEMI_KEY) || "auto");
+      const hemi = hemiChoice === "auto" ? getHemisphere() : hemiChoice;
+
+      const nowUTC = DateTime.utc();
+      const bounds = currentSeasonBounds(nowUTC, hemi);
+
+      updateSeasonHeading(bounds);
+      showSeasonTimes(bounds);
+      showMilestoneTimes(bounds);
+      updateSeasonProgress(bounds);
+      updateCurrentTime();
+    }
+
+    (function initControls() {
+      // Hemisphere selector
+      const savedHemi = localStorage.getItem(HEMI_KEY) || "auto";
+      hemiSelect.value = savedHemi;
+      hemiSelect.addEventListener("change", () => {
+        localStorage.setItem(HEMI_KEY, hemiSelect.value);
+        updateAll();
+      });
+
+      // UTC offset
+      const savedOffset = localStorage.getItem(OFFSET_KEY);
+      if (savedOffset) offsetInput.value = savedOffset;
+      const z = getUserFixedZone();
+      setUserOffsetDisplay(z ? z.mins : null);
+
+      // Percent mode + decimals
+      const savedMode = localStorage.getItem(PCT_MODE_KEY) || "truncate";
+      pctModeSelect.value = savedMode;
+
+      const savedDec = localStorage.getItem(PCT_DECIMALS_KEY);
+      pctDecimalsSelect.value = (savedDec != null) ? savedDec : "2";
+
+      pctModeSelect.addEventListener("change", () => {
+        localStorage.setItem(PCT_MODE_KEY, pctModeSelect.value);
+        updateAll();
+      });
+
+      pctDecimalsSelect.addEventListener("change", () => {
+        localStorage.setItem(PCT_DECIMALS_KEY, pctDecimalsSelect.value);
+        updateAll();
+      });
+
+
+      // AM/PM + Manual DST toggles (draft#10a)
+      const toggleAmpm = document.getElementById("toggleAmpm");
+      const toggleDst = document.getElementById("toggleDstInterval");
+      const dstStartInput = document.getElementById("dstStart");
+      const dstEndInput = document.getElementById("dstEnd");
+      const dstShiftInput = document.getElementById("dstShift");
+      const saveDstIntervalBtn = document.getElementById("saveDstInterval");
+      const clearDstIntervalBtn = document.getElementById("clearDstInterval");
+      const dstStatus = document.getElementById("dstStatus");
+
+      if (toggleAmpm) {
+        toggleAmpm.checked = (localStorage.getItem(AMPM_KEY) === "true");
+        toggleAmpm.addEventListener("change", () => {
+          localStorage.setItem(AMPM_KEY, toggleAmpm.checked ? "true" : "false");
+          updateAll();
+        });
+      }
+
+      if (toggleDst) {
+        toggleDst.checked = (localStorage.getItem(DST_TOGGLE_KEY) === "true");
+        toggleDst.addEventListener("change", () => {
+          localStorage.setItem(DST_TOGGLE_KEY, toggleDst.checked ? "true" : "false");
+          updateAll();
+        });
+      }
+
+      // Load saved DST config into inputs
+      try {
+        const raw = localStorage.getItem(DST_CFG_KEY);
+        if (raw && dstStartInput && dstEndInput && dstShiftInput) {
+          const cfg = JSON.parse(raw);
+          if (cfg?.startISO) dstStartInput.value = String(cfg.startISO).slice(0, 16);
+          if (cfg?.endISO) dstEndInput.value = String(cfg.endISO).slice(0, 16);
+          if (cfg?.shiftMinutes != null) dstShiftInput.value = String(cfg.shiftMinutes);
+          if (dstStatus) dstStatus.textContent = " (Loaded saved DST interval)";
+        }
+      } catch {}
+
+      if (saveDstIntervalBtn) {
+        saveDstIntervalBtn.addEventListener("click", () => {
+          if (!dstStartInput.value || !dstEndInput.value) {
+            alert("Please enter both DST start and DST end (in standard time).");
+            return;
+          }
+          const shift = parseInt(String(dstShiftInput.value || "").trim(), 10);
+          if (!Number.isFinite(shift)) {
+            alert("Please enter a valid DST shift minutes value (usually 60).");
+            return;
+          }
+          const cfg = { startISO: dstStartInput.value.trim(), endISO: dstEndInput.value.trim(), shiftMinutes: shift };
+          localStorage.setItem(DST_CFG_KEY, JSON.stringify(cfg));
+          if (dstStatus) dstStatus.textContent = " (Saved)";
+          updateAll();
+        });
+      }
+
+      if (clearDstIntervalBtn) {
+        clearDstIntervalBtn.addEventListener("click", () => {
+          localStorage.removeItem(DST_CFG_KEY);
+          if (dstStartInput) dstStartInput.value = "";
+          if (dstEndInput) dstEndInput.value = "";
+          if (dstShiftInput) dstShiftInput.value = "60";
+          if (dstStatus) dstStatus.textContent = " (Cleared)";
+          updateAll();
+        });
+      }
+
+    })();
+
+    updateAll();
+    setInterval(updateAll, 1000);
+  </script>
+</body>
+</html>
