@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Season Tracker - Percentage of Season Complete with Countdown - Adjustable Date-Times</title>
+  <title>Season Tracker (BigInt Truncate) - Percentage of Season Complete with Countdown - Adjustable Date-Times</title>
   <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; padding: 20px; line-height: 1.5; font-size: 18px; margin: 0; }
@@ -477,6 +477,27 @@
         return out.toFixed(places) + "%";
       }
 
+      function formatPercentFromCounts(elapsed, total, places, mode) {
+        if (total <= 0) return formatPercent(0, places, mode);
+
+        const clampedElapsed = Math.max(0, Math.min(total, elapsed));
+
+        if (mode === "truncate") {
+          const safePlaces = Math.max(0, Math.trunc(places));
+          const factorBig = 10n ** BigInt(safePlaces);
+          const elapsedBig = BigInt(clampedElapsed);
+          const totalBig = BigInt(total);
+          const scaledBig = (elapsedBig * 100n * factorBig) / totalBig;
+          const intPart = scaledBig / factorBig;
+          const fracPart = scaledBig % factorBig;
+          const fracText = safePlaces > 0 ? "." + fracPart.toString().padStart(safePlaces, "0") : "";
+          return intPart.toString() + fracText + "%";
+        }
+
+        const pct = (clampedElapsed / total) * 100;
+        return formatPercent(pct, places, mode);
+      }
+
       function nearHundredThreshold(places){
         return 100 - 0.5 * Math.pow(10, -places);
       }
@@ -620,6 +641,7 @@
         const remainingInt = Math.max(0, cachedTotalSecondsInt - clampedElapsedInt);
 
         const pct = Math.max(0, Math.min(100, (clampedElapsedInt / cachedTotalSecondsInt) * 100));
+        const pctText = formatPercentFromCounts(clampedElapsedInt, cachedTotalSecondsInt, places, mode);
 
         let progressText = "";
         if (nowMs < cachedStartMs){
@@ -632,10 +654,10 @@
             if (pct >= threshold && pct < 100) {
               progressText = `This season is ${nearHundredMessage(places)}`;
             } else {
-              progressText = `This season is ${formatPercent(pct, places, mode)} complete.`;
+              progressText = `This season is ${pctText} complete.`;
             }
           } else {
-            progressText = `This season is ${formatPercent(pct, places, mode)} complete.`;
+            progressText = `This season is ${pctText} complete.`;
           }
         }
         seasonProgressEl.textContent = progressText;
