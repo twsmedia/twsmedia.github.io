@@ -262,19 +262,19 @@
           offset: offsetStr
         };
 
-        const springStartUTC = DateTime.fromISO("2026-03-20T14:46:00Z");
-        const springEndUTC   = DateTime.fromISO("2026-06-21T08:24:00Z");
+        const summerStartUTC = DateTime.fromISO("2026-06-21T08:24:00Z");
+        const summerEndUTC   = DateTime.fromISO("2026-09-23T00:05:00Z");
 
-        const spring2026 = {
-          name: "Astronomical Spring 2026",
-          start: springStartUTC.setZone(zone).toFormat("yyyy-LL-dd'T'HH:mm:ss"),
-          end: springEndUTC.setZone(zone).toFormat("yyyy-LL-dd'T'HH:mm:ss"),
+        const summer2026 = {
+          name: "Astronomical Summer 2026",
+          start: summerStartUTC.setZone(zone).toFormat("yyyy-LL-dd'T'HH:mm:ss"),
+          end: summerEndUTC.setZone(zone).toFormat("yyyy-LL-dd'T'HH:mm:ss"),
           offset: offsetStr
         };
 
         return {
           "2026 Calendar Year": calendar2026,
-          "Astronomical Spring 2026": spring2026
+          "Astronomical Summer 2026": summer2026
         };
       }
 
@@ -284,7 +284,7 @@
 
         const ordered = {};
 
-        for (const key of ["2026 Calendar Year", "Astronomical Spring 2026"]) {
+        for (const key of ["2026 Calendar Year", "Astronomical Summer 2026"]) {
           ordered[key] = existing[key] || defaults[key];
         }
 
