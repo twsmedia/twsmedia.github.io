@@ -29,7 +29,7 @@
 </head>
 <body>
 
-  <h2>Season Tracker - Percentage of Season Complete with Countdown - Adjustable Date-Times</h2>
+  <h2>Season Tracker - Percentage of Season Complete with Countdown - Adjustable Date-Times - What percentage of Astronomical Summer is complete?</h2>
   <div id="tzNote" class="note"></div>
 
   <!-- Preset Section -->
@@ -519,7 +519,12 @@
         cachedZone = zInfo.zone;
         cachedLabel = zInfo.label;
 
-        $("tzNote").textContent = `Enter date-times in forced Standard Time which would involve subtracting an hour from a time in Daylight Saving Time. For example in New York, Sep 1, 2026 12:00:00am EDT would be entered as Aug 31, 2026, 11:00:00pm. Selections for Daylight Saving Time ON/OFF, decimal places, and round/truncate mode are below. This page was programmed by ChatGPT using prompts by Timothy W Schmits, timothy.w.schmits@protonmail.com`;
+        $("tzNote").textContent = `Enter date-times in forced Standard Time which would involve subtracting an hour from a time in Daylight Saving Time. For example in New York, Sep 1, 2026 12:00:00am EDT would be entered as Aug 31, 2026, 11:00:00pm.` +
+        `Selections for Daylight Saving Time ON/OFF, decimal places, and round/truncate mode are below. ` + 
+        `Start and End of Astronomical Summer in Northern Hemisphere: Jun 21 8:24 am GMT Sep 23 12:05 am GMT.` +
+        `It may be necessary to enter those date-times manually if the UTC number is changed. ` +
+        `Some other season ideas: meteorological, real-feel fall, school year, summer vacation.` +
+        `This page was programmed by ChatGPT using prompts by Timothy W Schmits, timothy.w.schmits@protonmail.com`;
 
         const nm = nameInput.value.trim();
         const headingName = nm ? nm : "Custom Season";
