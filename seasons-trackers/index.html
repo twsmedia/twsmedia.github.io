@@ -40,7 +40,7 @@
 </head>
 <body>
 
-  <h2>Season Tracker - Percentage of Season Complete with Countdown - Adjustable Date-Times - What percentage of Astronomical Summer is complete?</h2>
+  <h2>Season Tracker - Percentage of Season Complete with Countdown - Adjustable Date-Times - What percentage of the astronomical season is complete?</h2>
   <div id="tzNote" class="note"></div>
 
   <!-- Preset Section -->
@@ -273,34 +273,67 @@
           offset: offsetStr
         };
 
-        const summerStartUTC = DateTime.fromISO("2026-06-21T08:24:00Z");
-        const summerEndUTC   = DateTime.fromISO("2026-09-23T00:05:00Z");
-
-        const summer2026 = {
-          name: "Astronomical Summer 2026",
-          start: summerStartUTC.setZone(zone).toFormat("yyyy-LL-dd'T'HH:mm:ss"),
-          end: summerEndUTC.setZone(zone).toFormat("yyyy-LL-dd'T'HH:mm:ss"),
-          offset: offsetStr
-        };
-
-        return {
-          "2026 Calendar Year": calendar2026,
-          "Astronomical Summer 2026": summer2026
-        };
+        // Astronomical season boundaries from the user's GMT screenshots.
+        // Each row: year, March equinox, June solstice, September equinox, December solstice.
+        // Times are GMT/UTC to the nearest minute; keep this table in the HTML for offline use.
+        const seasonTimesGMT = `
+2025 03-20T09:01 06-21T02:42 09-22T18:19 12-21T15:03
+2026 03-20T14:46 06-21T08:24 09-23T00:05 12-21T20:50
+2027 03-20T20:24 06-21T14:10 09-23T06:01 12-22T02:42
+2028 03-20T02:17 06-20T20:02 09-22T11:45 12-21T08:19
+2029 03-20T08:02 06-21T01:48 09-22T17:38 12-21T14:14
+2030 03-20T13:51 06-21T07:31 09-22T23:26 12-21T20:09
+2031 03-20T19:41 06-21T13:17 09-23T05:15 12-22T01:55
+2032 03-20T01:21 06-20T19:08 09-22T11:10 12-21T07:55
+2033 03-20T07:22 06-21T01:01 09-22T16:51 12-21T13:45
+2034 03-20T13:17 06-21T06:44 09-22T22:39 12-21T19:33
+2035 03-20T19:02 06-21T12:33 09-23T04:39 12-22T01:30
+2036 03-20T01:02 06-20T18:32 09-22T10:23 12-21T07:12
+2037 03-20T06:50 06-21T00:22 09-22T16:13 12-21T13:07
+2038 03-20T12:40 06-21T06:09 09-22T22:02 12-21T19:02
+2039 03-20T18:31 06-21T11:57 09-23T03:49 12-22T00:40
+2040 03-20T00:11 06-20T17:46 09-22T09:44 12-21T06:32
+2041 03-20T06:06 06-20T23:35 09-22T15:26 12-21T12:18
+2042 03-20T11:53 06-21T05:15 09-22T21:11 12-21T18:04
+2043 03-20T17:27 06-21T10:58 09-23T03:06 12-22T00:01
+2044 03-19T23:20 06-20T16:51 09-22T08:47 12-21T05:43
+2045 03-20T05:07 06-20T22:33 09-22T14:32 12-21T11:35
+2046 03-20T10:57 06-21T04:14 09-22T20:21 12-21T17:28
+2047 03-20T16:52 06-21T10:03 09-23T02:08 12-21T23:07
+2048 03-19T22:33 06-20T15:53 09-22T08:00 12-21T05:02
+2049 03-20T04:28 06-20T21:47 09-22T13:42 12-21T10:52
+        `.trim().split("\n").map(row => row.trim().split(/\s+/));
+        const seasonNames = ["Spring", "Summer", "Autumn", "Winter"];
+        const transitions = seasonTimesGMT.flatMap(([year, ...times]) =>
+          times.map((mdTime, index) => ({
+            name: `Astronomical ${seasonNames[index]} ${index === 3 ? `${year}–${Number(year) + 1}` : year}`,
+            utc: `${year}-${mdTime}:00Z`
+          }))
+        );
+        const presets = { "2026 Calendar Year": calendar2026 };
+        for (let i = 0; i < transitions.length - 1; i++) {
+          const { name, utc: startUTC } = transitions[i];
+          presets[name] = {
+            name,
+            start: DateTime.fromISO(startUTC).setZone(zone).toFormat("yyyy-LL-dd'T'HH:mm:ss"),
+            end: DateTime.fromISO(transitions[i + 1].utc).setZone(zone).toFormat("yyyy-LL-dd'T'HH:mm:ss"),
+            offset: offsetStr
+          };
+        }
+        return presets;
       }
 
       function ensureDefaultPresets() {
         const existing = getPresets();
         const defaults = buildDefaultPresets();
-
-        const ordered = {};
-
-        for (const key of ["2026 Calendar Year", "Astronomical Summer 2026"]) {
-          ordered[key] = existing[key] || defaults[key];
-        }
-
+        const current = findCurrentAstronomicalSeason();
+        const ordered = {
+          "2026 Calendar Year": existing["2026 Calendar Year"] || defaults["2026 Calendar Year"]
+        };
+        if (current) ordered[current.name] = current;
+        // Remove astronomical buttons saved by older versions of this page.
         for (const [key, value] of Object.entries(existing)) {
-          if (!(key in ordered)) ordered[key] = value;
+          if (!key.startsWith("Astronomical ") && !(key in ordered)) ordered[key] = value;
         }
 
         savePresets(ordered);
@@ -348,6 +381,8 @@
       function renderPresetButtons() {
         const container = $("presetButtons");
         const presets = getPresets();
+        // The full date table drives rollover; only the current season needs a button.
+        const currentSeason = findCurrentAstronomicalSeason();
 
         container.innerHTML = "";
 
@@ -357,6 +392,7 @@
         }
 
         for (const [name, preset] of Object.entries(presets)) {
+          if (name.startsWith("Astronomical ") && name !== currentSeason?.name) continue;
           const btn = document.createElement("button");
           btn.className = "preset-btn";
           btn.textContent = name;
@@ -441,6 +477,37 @@
           const radio = pctModeRadios().find(r => r.value === mode);
           if (radio) radio.checked = true;
         }
+      }
+
+      function findCurrentAstronomicalSeason() {
+        const defaults = buildDefaultPresets();
+        const seasons = Object.values(defaults).filter(p => p.name.startsWith("Astronomical "));
+        const now = Date.now();
+        return seasons.find(p => {
+          const start = DateTime.fromISO(p.start, { zone: FixedOffsetZone.instance(parseOffsetToMinutes(p.offset)) }).toMillis();
+          const end = DateTime.fromISO(p.end, { zone: FixedOffsetZone.instance(parseOffsetToMinutes(p.offset)) }).toMillis();
+          return start <= now && now < end;
+        });
+      }
+
+      // Select the current season on page load only, and only if the saved
+      // tracker is an astronomical season (or this is the first visit).
+      function advanceAstronomicalSeasonOnLoad() {
+        const savedName = nameInput.value.trim();
+        if (savedName && !Object.keys(buildDefaultPresets()).includes(savedName)) return;
+        if (savedName === "2026 Calendar Year") return;
+        const current = findCurrentAstronomicalSeason();
+        if (!current) return;
+        // Keep an existing season's own dates and offset until it ends.
+        if (savedName === current.name && startInput.value === current.start && endInput.value === current.end && offsetInput.value === current.offset) return;
+        nameInput.value = current.name;
+        startInput.value = current.start;
+        endInput.value = current.end;
+        offsetInput.value = current.offset;
+        localStorage.setItem(LS.NAME, current.name);
+        localStorage.setItem(LS.START, current.start);
+        localStorage.setItem(LS.END, current.end);
+        localStorage.setItem(LS.OFFSET, current.offset);
       }
 
       // --- Zone helpers ---
@@ -532,7 +599,7 @@
 
         $("tzNote").textContent = `Enter date-times in forced Standard Time which would involve subtracting an hour from a time in Daylight Saving Time. For example in New York, Sep 1, 2026 12:00:00am EDT would be entered as Aug 31, 2026, 11:00:00pm.` +
         `Selections for Daylight Saving Time ON/OFF, decimal places, and round/truncate mode are below. ` + 
-        `Start and End of Astronomical Summer in Northern Hemisphere: Jun 21 8:24 am GMT Sep 23 12:05 am GMT.` +
+        `Astronomical season boundaries for 2025–2049 are stored in this HTML file in GMT/UTC.` +
         `It may be necessary to enter those date-times manually if the UTC number is changed. ` +
         `Some other season ideas: meteorological, real-feel fall, school year, summer vacation.` +
         `This page was programmed by ChatGPT using prompts by Timothy W Schmits, timothy.w.schmits@protonmail.com`;
@@ -741,6 +808,7 @@
       // --- Init ---
       loadFromLocalStorage();
       ensureDefaultPresets();
+      advanceAstronomicalSeasonOnLoad();
       setOffsetStatus();
       renderPresetButtons();
       recomputeStatic();
