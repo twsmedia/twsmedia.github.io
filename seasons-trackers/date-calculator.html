@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Date Calculators</title><style>
+*{box-sizing:border-box}body{margin:0;background:#f7f9fc;color:#354052;font:18px Arial,sans-serif}main{max-width:980px;margin:60px auto;padding:28px}h1{font-size:30px;margin:0 0 10px}p{color:#647084;line-height:1.5}fieldset{border:0;padding:0;margin:28px 0;min-width:0}legend{font-size:21px;font-weight:bold;margin-bottom:16px}.fields{display:flex;align-items:end;gap:8px;flex-wrap:wrap}label{display:flex;flex-direction:column;gap:7px;font-weight:bold;font-size:16px}input,select{font:18px Arial;padding:10px 8px;border:1px solid #bbc3cf;border-radius:4px;background:white;color:#354052}input{width:62px}input.year{width:86px}input.amount{width:150px}.slash{padding-bottom:12px}.calendar{width:45px;height:43px;position:relative;overflow:hidden;border:1px solid #bbc3cf;border-radius:4px;background:white}.calendar span{position:absolute;inset:0;display:grid;place-items:center;font-size:24px;pointer-events:none}.calendar input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}.today{border:0;background:none;padding:8px 0;color:#405dcd;font-size:17px;cursor:pointer;text-decoration:underline}.weekday{min-height:24px;font-weight:bold;color:#304baa}.offset{gap:18px}.calculate{background:#405dcd;border:0;border-radius:6px;padding:13px 24px;color:white;font-size:18px;cursor:pointer}button:hover{filter:brightness(.9)}input:focus,select:focus,button:focus-visible{outline:3px solid #9eaff5;outline-offset:2px}.result{margin-top:28px;background:white;border:1px solid #dce2ec;border-radius:8px;padding:24px}.result h2{font-size:18px;margin:0 0 12px}.number{font-size:38px;font-weight:bold;color:#304baa}.result .weekday{margin-top:10px;font-size:22px}.note{font-size:15px;margin:12px 0 0}.error{color:#b22222;margin-top:18px}@media(max-width:680px){main{margin:15px auto;padding:22px}.number{font-size:30px}}
+
+.dates{display:flex;justify-content:space-between;gap:32px;margin:28px 0}.dates fieldset{margin:0}.tool + .tool{border-top:2px solid #dce2ec;margin-top:46px;padding-top:42px}.tool h1{font-size:28px}#between-weeks-days{font-size:22px;font-weight:bold;color:#304baa}@media(max-width:680px){.dates{flex-direction:column;gap:24px}}</style></head><body><main>
+<section id="between-section" class="tool">
+<h1>Days Between Dates</h1>
+<p>Enter two dates to calculate the number of days between them.</p>
+<form id="between-calculator" novalidate>
+<div class="dates">
+<fieldset><legend>Start Date</legend><div class="fields">
+<label for="between-start-month">Month:<input id="between-start-month" inputmode="numeric" maxlength="2" placeholder="mm" value="10" autocomplete="off"></label><span class="slash">/</span>
+<label for="between-start-day">Day:<input id="between-start-day" inputmode="numeric" maxlength="2" placeholder="dd" value="04" autocomplete="off"></label><span class="slash">/</span>
+<label for="between-start-year">Year:<input class="year" id="between-start-year" inputmode="numeric" maxlength="4" placeholder="yyyy" value="1944" autocomplete="off"></label>
+<label>Date:<div class="calendar"><span aria-hidden="true">📅</span><input type="date" id="between-start-picker" aria-label="Choose start date" min="0001-01-01" max="9999-12-31" value="1944-10-04"></div></label>
+</div><button class="today" type="button" data-today="start">Today</button><div id="between-start-weekday" class="weekday" aria-live="polite"></div></fieldset>
+<fieldset><legend>End Date</legend><div class="fields">
+<label for="between-end-month">Month:<input id="between-end-month" inputmode="numeric" maxlength="2" placeholder="mm" value="11" autocomplete="off"></label><span class="slash">/</span>
+<label for="between-end-day">Day:<input id="between-end-day" inputmode="numeric" maxlength="2" placeholder="dd" value="23" autocomplete="off"></label><span class="slash">/</span>
+<label for="between-end-year">Year:<input class="year" id="between-end-year" inputmode="numeric" maxlength="4" placeholder="yyyy" value="2026" autocomplete="off"></label>
+<label>Date:<div class="calendar"><span aria-hidden="true">📅</span><input type="date" id="between-end-picker" aria-label="Choose end date" min="0001-01-01" max="9999-12-31" value="2026-11-23"></div></label>
+</div><button class="today" type="button" data-today="end">Today</button><div id="between-end-weekday" class="weekday" aria-live="polite"></div></fieldset>
+</div>
+<button class="calculate" type="submit">Calculate days</button>
+<div id="between-error" class="error" role="alert" hidden></div>
+<section class="result" aria-live="polite" aria-atomic="true"><div id="between-result" class="number">30,000 days</div><p class="note">Elapsed days between the dates. The same date gives 0 days; adjacent dates give 1 day.</p><p id="between-weeks-days" style="margin:16px 0 0;font-size:22px;font-weight:bold;color:#304baa"></p><p id="between-years" style="margin:12px 0 0;font-size:22px;font-weight:bold;color:#304baa"></p><p class="note" id="between-order" hidden>The end date is earlier than the start date. The result shows the distance between them.</p></section>
+</form>
+</section>
+<script>
+(() => {
+const root = window.document.getElementById('between-section');
+const document = {getElementById: id => window.document.getElementById('between-' + id), querySelectorAll: selector => root.querySelectorAll(selector)};
+
+const field = (prefix, part) => document.getElementById(prefix + '-' + part);
+function readDate(prefix) {
+  const values = ['year','month','day'].map(part => field(prefix,part).value.trim());
+  if(values.some(value => !/^\d+$/.test(value))) throw new Error('Enter a month, day, and year for the ' + prefix + ' date.');
+  const [year,month,day] = values.map(Number);
+  const date = new Date(0);
+  date.setUTCFullYear(year,month-1,day);
+  date.setUTCHours(0,0,0,0);
+  if(year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || date.getUTCFullYear() !== year || date.getUTCMonth() !== month-1 || date.getUTCDate() !== day) throw new Error('Enter a valid ' + prefix + ' date (year 1–9999).');
+  return date;
+}
+function updateWeekday(prefix) {
+  try {
+    const date = readDate(prefix);
+    field(prefix,'weekday').textContent = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'][date.getUTCDay()];
+  } catch {
+    field(prefix,'weekday').textContent = '';
+  }
+}
+function calculate() {
+  updateWeekday('start');
+  updateWeekday('end');
+  const error = document.getElementById('error');
+  try {
+    const start = readDate('start'), end = readDate('end');
+    const days = Math.abs(end - start) / 86400000;
+    document.getElementById('result').textContent = days.toLocaleString('en-US') + (days === 1 ? ' day' : ' days');
+    const weeks = Math.floor(days / 7), remainingDays = days % 7;
+    document.getElementById('weeks-days').textContent = weeks.toLocaleString('en-US') + (weeks === 1 ? ' week' : ' weeks') + ' + ' + remainingDays + (remainingDays === 1 ? ' day' : ' days');
+    document.getElementById('years').textContent = (days / 365.25).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false}) + ' years';
+    document.getElementById('order').hidden = end >= start;
+    error.hidden = true;
+  } catch(e) {
+    error.textContent = e.message; error.hidden = false;
+    document.getElementById('result').textContent = 'Check your dates';
+    document.getElementById('weeks-days').textContent = '';
+    document.getElementById('years').textContent = '';
+    document.getElementById('order').hidden = true;
+  }
+}
+function setFields(prefix, year, month, day) {
+  field(prefix,'year').value = String(year).padStart(4,'0');
+  field(prefix,'month').value = String(month).padStart(2,'0');
+  field(prefix,'day').value = String(day).padStart(2,'0');
+  field(prefix,'picker').value = `${String(year).padStart(4,'0')}-${String(month).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+}
+for(const prefix of ['start','end']) {
+  field(prefix,'picker').addEventListener('change', event => {
+    if(!event.target.value) return;
+    const [year,month,day] = event.target.value.split('-').map(Number);
+    setFields(prefix,year,month,day); calculate();
+  });
+  for(const part of ['year','month','day']) field(prefix,part).addEventListener('input', () => {
+    updateWeekday(prefix);
+    try {const date = readDate(prefix); setPicker(date);} catch {field(prefix,'picker').value = '';}
+    function setPicker(date) {field(prefix,'picker').value = String(date.getUTCFullYear()).padStart(4,'0') + '-' + String(date.getUTCMonth()+1).padStart(2,'0') + '-' + String(date.getUTCDate()).padStart(2,'0');}
+  });
+}
+document.querySelectorAll('[data-today]').forEach(button => button.addEventListener('click', () => {
+  const today = new Date(); setFields(button.dataset.today,today.getFullYear(),today.getMonth()+1,today.getDate()); calculate();
+}));
+document.getElementById('calculator').addEventListener('submit', event => {event.preventDefault();calculate();});
+const today = new Date();
+for (const prefix of ['start','end']) setFields(prefix,today.getFullYear(),today.getMonth()+1,today.getDate());
+calculate();
+})();
+</script>
+<section id="shift-section" class="tool">
+<h1>Add or Subtract Days</h1>
+<p>Choose a starting date, then add or subtract weeks and days.</p>
+<form id="shift-calculator" novalidate>
+<fieldset><legend>Starting Date</legend><div class="fields">
+<label for="shift-month">Month:<input id="shift-month" inputmode="numeric" maxlength="2" placeholder="mm" value="10" autocomplete="off"></label><span class="slash">/</span>
+<label for="shift-day">Day:<input id="shift-day" inputmode="numeric" maxlength="2" placeholder="dd" value="04" autocomplete="off"></label><span class="slash">/</span>
+<label for="shift-year">Year:<input class="year" id="shift-year" inputmode="numeric" maxlength="4" placeholder="yyyy" value="1944" autocomplete="off"></label>
+<label for="shift-picker">Date:<div class="calendar"><span aria-hidden="true">📅</span><input type="date" id="shift-picker" aria-label="Choose starting date" min="0001-01-01" max="9999-12-31" value="1944-10-04"></div></label>
+</div><button class="today" type="button" id="shift-today">Today</button><div id="shift-start-weekday" class="weekday" aria-live="polite"></div></fieldset>
+<fieldset><legend>Amount to Add or Subtract</legend><div class="fields offset">
+<label for="shift-operation">Operation:<select id="shift-operation"><option value="add">Add</option><option value="subtract">Subtract</option></select></label>
+<label for="shift-weeks">Weeks:<input class="amount" id="shift-weeks" inputmode="numeric" value="0" autocomplete="off"></label>
+<label for="shift-days">Days:<input class="amount" id="shift-days" inputmode="numeric" value="0" autocomplete="off"></label>
+</div><p class="note">For days only, enter 0 weeks. For weeks only, enter 0 days. Each week equals 7 days.</p></fieldset>
+<button class="calculate" type="submit">Calculate date</button>
+<div id="shift-error" class="error" role="alert" hidden></div>
+<section class="result" aria-live="polite" aria-atomic="true"><h2>Resulting Date (Month / Day / Year)</h2><div id="shift-result" class="number"></div><div id="shift-result-weekday" class="weekday"></div><p id="shift-summary" class="note"></p></section>
+<p class="note">Dates must be between January 1, 0001 and December 31, 9999. Uses calendar days, including weekends and holidays.</p>
+</form></section>
+<script>
+(() => {
+const root = window.document.getElementById('shift-section');
+const document = {getElementById: id => window.document.getElementById('shift-' + id), querySelectorAll: selector => root.querySelectorAll(selector)};
+
+const field = id => document.getElementById(id);
+const weekdays = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+function readDate() {
+  const values = ['year','month','day'].map(id => field(id).value.trim());
+  if(values.some(value => !/^\d+$/.test(value))) throw new Error('Enter a month, day, and year for the starting date.');
+  const [year,month,day] = values.map(Number);
+  const date = new Date(0);date.setUTCFullYear(year,month-1,day);date.setUTCHours(0,0,0,0);
+  if(year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || date.getUTCFullYear() !== year || date.getUTCMonth() !== month-1 || date.getUTCDate() !== day) throw new Error('Enter a valid starting date (year 1–9999).');
+  return date;
+}
+function readAmount(id) {
+  const value = field(id).value.trim();
+  if(value === '') return 0;
+  if(!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value))) throw new Error('Enter a nonnegative whole number for ' + id + '.');
+  return Number(value);
+}
+function shiftDate(start, weeks, days, operation) {
+  const total = weeks * 7 + days;
+  if(!Number.isSafeInteger(total) || total > 3652058) throw new Error('The resulting date must be between January 1, 0001 and December 31, 9999.');
+  const result = new Date(start.getTime() + (operation === 'subtract' ? -1 : 1) * total * 86400000);
+  if(result.getUTCFullYear() < 1 || result.getUTCFullYear() > 9999) throw new Error('The resulting date must be between January 1, 0001 and December 31, 9999.');
+  return result;
+}
+function syncStart() {
+  try {
+    const date = readDate();
+    field('start-weekday').textContent = weekdays[date.getUTCDay()];
+    field('picker').value = String(date.getUTCFullYear()).padStart(4,'0') + '-' + String(date.getUTCMonth()+1).padStart(2,'0') + '-' + String(date.getUTCDate()).padStart(2,'0');
+  } catch {field('start-weekday').textContent = '';field('picker').value = '';}
+}
+function clearResult() {field('result').textContent = '';field('result-weekday').textContent = '';field('summary').textContent = '';}
+function calculate() {
+  syncStart();
+  try {
+    const start = readDate(), weeks = readAmount('weeks'), days = readAmount('days'), operation = field('operation').value;
+    const result = shiftDate(start,weeks,days,operation);
+    field('result').textContent = String(result.getUTCMonth()+1).padStart(2,'0') + ' / ' + String(result.getUTCDate()).padStart(2,'0') + ' / ' + String(result.getUTCFullYear()).padStart(4,'0');
+    field('result-weekday').textContent = weekdays[result.getUTCDay()];
+    field('summary').textContent = (operation === 'subtract' ? 'Subtracted ' : 'Added ') + weeks.toLocaleString('en-US') + (weeks === 1 ? ' week' : ' weeks') + ' + ' + days.toLocaleString('en-US') + (days === 1 ? ' day' : ' days') + ' (' + (weeks*7+days).toLocaleString('en-US') + ' total days).';
+    field('error').hidden = true;
+  } catch(e) {clearResult();field('result').textContent = 'Check your entries';field('error').textContent = e.message;field('error').hidden = false;}
+}
+function setDate(year,month,day) {field('year').value = String(year).padStart(4,'0');field('month').value = String(month).padStart(2,'0');field('day').value = String(day).padStart(2,'0');}
+for(const id of ['year','month','day','weeks','days']) field(id).addEventListener('input', () => {syncStart();clearResult();field('error').hidden = true;});
+field('operation').addEventListener('change',calculate);
+field('picker').addEventListener('change',event => {if(!event.target.value)return;setDate(...event.target.value.split('-').map(Number));calculate();});
+field('today').addEventListener('click', () => {const today = new Date();setDate(today.getFullYear(),today.getMonth()+1,today.getDate());calculate();});
+field('calculator').addEventListener('submit',event => {event.preventDefault();calculate();});
+const today = new Date();
+setDate(today.getFullYear(),today.getMonth()+1,today.getDate());
+calculate();
+})();
+</script>
+</main></body></html>
